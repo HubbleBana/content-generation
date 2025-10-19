@@ -530,12 +530,21 @@ with gr.Blocks(title="Sleep Stories AI - Enhanced v2.0", theme=gr.themes.Soft())
         outputs=[custom_models_group]
     )
     
-    # Event handlers
+    # Fixed Event handlers - remove lambda for use_custom_models
+    def handle_generate(theme, duration, description, model_preset,
+                       custom_generator, custom_reasoner, custom_polisher,
+                       use_reasoner, use_polisher, tts_markers, strict_schema):
+        use_custom_models = (model_preset == "custom")
+        return generate_enhanced_story_with_sse(
+            theme, duration, description, model_preset, use_custom_models,
+            custom_generator, custom_reasoner, custom_polisher,
+            use_reasoner, use_polisher, tts_markers, strict_schema
+        )
+    
     generate_btn.click(
-        fn=generate_enhanced_story_with_sse,
+        fn=handle_generate,
         inputs=[
             theme, duration, description, model_preset,
-            lambda preset: preset == "custom", # use_custom_models
             custom_generator, custom_reasoner, custom_polisher,
             use_reasoner, use_polisher, tts_markers, strict_schema
         ],
