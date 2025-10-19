@@ -169,7 +169,8 @@ async def story_generation_pipeline(
         jobs[job_id]["status"] = "processing"
         jobs[job_id]["current_step"] = "Initializing AI generators..."
         jobs[job_id]["current_step_number"] = 1
-        jobs[job_id]["total_steps"] = 8  # Approximate total steps
+        jobs[job_id]["total_steps"] = 8
+        jobs[job_id]["progress"] = 5
         
         # Notify real-time listeners
         if job_id in job_events:
@@ -180,19 +181,36 @@ async def story_generation_pipeline(
             translation_quality=translation_quality
         )
         
-        jobs[job_id]["current_step"] = "Generating English story structure..."
-        jobs[job_id]["progress"] = 5
+        jobs[job_id]["current_step"] = "Analyzing theme and setting..."
+        jobs[job_id]["progress"] = 10
         jobs[job_id]["current_step_number"] = 2
         
         if job_id in job_events:
             job_events[job_id].set()
+        
+        # AGGIUNGI questo per più granularità:
+        def enhanced_update_callback(progress, step, step_num=0):
+            if job_id in jobs:
+                jobs[job_id]["progress"] = progress
+                jobs[job_id]["current_step"] = step
+                if step_num > 0:
+                    jobs[job_id]["current_step_number"] = step_num
+                
+                # Forza notifica SSE
+                if job_id in job_events:
+                    job_events[job_id].set()
+                
+                # Mini delay per dare tempo al client di ricevere
+                import asyncio
+                import time
+                time.sleep(0.1)  # 100ms delay
         
         result = await generator.generate_full_story(
             theme=theme,
             duration=duration,
             description=description,
             job_id=job_id,
-            update_callback=lambda p, s, step_num=0: update_job_progress(job_id, p, s, step_num)
+            update_callback=enhanced_update_callback  # ✅ USA la versione enhanced
         )
         
         # Save both English and translated versions

@@ -21,7 +21,7 @@ class StoryGenerator:
         
         # Initialize advanced systems
         self.translator = TranslationSystem(quality_mode=translation_quality) if target_language != "en" else None
-        self.coherence_system = CoherenceSystem()
+        self.coherence_system = None
         
         logger.info(f"StoryGenerator initialized - Language: {target_language}, Translation: {translation_quality}")
     
@@ -45,7 +45,7 @@ class StoryGenerator:
             # Step 3: Initialize Systems
             update(15, 'Initializing coherence and memory systems...', 3)
             memory = MemorySystem(outline.get('story_bible', {}))
-            self.coherence_system.initialize_story_bible(outline.get('story_bible', {}))
+            #self.coherence_system.initialize_story_bible(outline.get('story_bible', {}))
             
             # Step 4: Generate English Story
             update(20, 'Generating English story content...', 4)
@@ -69,9 +69,9 @@ class StoryGenerator:
                     
                     # Update systems
                     memory.add_beat(beat.get('beat_id', beat_index), beat_text)
-                    self.coherence_system.add_beat_context(
-                        beat_index, beat_text, beat
-                    )
+                    #self.coherence_system.add_beat_context(
+                    #    beat_index, beat_text, beat
+                    #)
                     
                     full_story_english += beat_text + '\n\n'
             
@@ -142,8 +142,7 @@ class StoryGenerator:
                     prompt=prompt, 
                     options={
                         'temperature': settings.MODEL_TEMPERATURE, 
-                        'num_predict': 800,
-                        'repetition_penalty': 1.1
+                        'num_predict': 800
                     }
                 )
                 json_text = self._extract_json(response['response'])
@@ -177,8 +176,7 @@ class StoryGenerator:
                     prompt=prompt, 
                     options={
                         'temperature': settings.MODEL_TEMPERATURE, 
-                        'num_predict': settings.MAX_TOKENS_OUTLINE,
-                        'repetition_penalty': 1.1
+                        'num_predict': settings.MAX_TOKENS_OUTLINE
                     }
                 )
                 json_text = self._extract_json(response['response'])
@@ -227,7 +225,6 @@ class StoryGenerator:
             prompt=prompt,
             options={
                 'temperature': settings.MODEL_TEMPERATURE,
-                'repetition_penalty': settings.MODEL_REPETITION_PENALTY + 0.1,  # Slightly higher for coherence
                 'num_predict': settings.MAX_TOKENS_BEAT
             }
         )
@@ -251,8 +248,7 @@ class StoryGenerator:
                         prompt=improvement_prompt,
                         options={
                             'temperature': 0.4,  # Lower temperature for revision
-                            'num_predict': settings.MAX_TOKENS_BEAT,
-                            'repetition_penalty': 1.2
+                            'num_predict': settings.MAX_TOKENS_BEAT
                         }
                     )
                     revised_text = response['response'].strip()
@@ -286,8 +282,7 @@ class StoryGenerator:
                     prompt=tune_prompt,
                     options={
                         'temperature': 0.6,
-                        'num_predict': settings.MAX_TOKENS_BEAT,
-                        'repetition_penalty': 1.15
+                        'num_predict': settings.MAX_TOKENS_BEAT
                     }
                 )
                 beat_text = response['response'].strip()

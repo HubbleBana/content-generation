@@ -31,17 +31,33 @@ class CoherenceSystem:
         
     def initialize_story_bible(self, bible_data: dict):
         """Initialize with story bible from outline"""
-        self.story_bible = bible_data.copy()
-        
-        # Extract key entities from bible
-        if 'setting' in bible_data:
-            self._extract_location_entities(bible_data['setting'])
-        
-        if 'key_objects' in bible_data:
-            for obj in bible_data['key_objects']:
-                self.object_tracker[obj] = {'introduced': False, 'last_mentioned': 0}
-        
-        logger.info(f"Story bible initialized with {len(self.object_tracker)} objects")
+        try:
+            # Safe copy with type checking
+            self.story_bible = {}
+            if isinstance(bible_data, dict):
+                for key, value in bible_data.items():
+                    self.story_bible[str(key)] = value
+            
+            # Extract key entities from bible
+            setting = self.story_bible.get('setting', '')
+            if isinstance(setting, str) and setting:
+                self._extract_location_entities(setting)
+            
+            key_objects = self.story_bible.get('key_objects', [])
+            if isinstance(key_objects, list):
+                for obj in key_objects:
+                    # Ensure obj is string
+                    obj_str = str(obj).strip() if obj else ""
+                    if obj_str and len(obj_str) > 1:
+                        self.object_tracker[obj_str] = {'introduced': False, 'last_mentioned': 0}
+            
+            logger.info(f"Story bible initialized with {len(self.object_tracker)} objects")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize story bible: {e}")
+            # Initialize with safe defaults
+            self.story_bible = {'setting': 'unknown', 'key_objects': []}
+            self.object_tracker = {}
     
     def add_beat_context(self, beat_id: int, beat_text: str, beat_info: dict):
         """Add new beat to context window and update tracking"""
@@ -203,14 +219,20 @@ class CoherenceSystem:
     
     def _update_character_tracking(self, text: str, beat_id: int):
         """Update character mentions and consistency"""
-        # Simple character detection - look for 'you' and common names
-        characters = ['you', 'your']
-        
-        for char in characters:
-            if char in text.lower():
-                if char not in self.character_tracker:
-                    self.character_tracker[char] = {'introduced': True}
-                self.character_tracker[char]['last_mentioned'] = beat_id
+        try:
+            # Simple character detection - look for 'you' and common names
+            characters = ['you', 'your']
+            text_lower = text.lower() if isinstance(text, str) else ""
+            
+            for char in characters:
+                char_str = str(char).strip()
+                if char_str and char_str in text_lower:
+                    if char_str not in self.character_tracker:
+                        self.character_tracker[char_str] = {'introduced': True}
+                    self.character_tracker[char_str]['last_mentioned'] = int(beat_id)
+                    
+        except Exception as e:
+            logger.warning(f"Character tracking failed: {e}")
     
     def _update_location_tracking(self, text: str, beat_id: int):
         """Update location mentions"""
@@ -262,23 +284,32 @@ class CoherenceSystem:
     
     def _detect_repetitions(self, text: str):
         """Detect and track repetitive phrases"""
-        # Extract phrases (3-4 words)
-        words = text.lower().split()
-        phrases = []
-        
-        for i in range(len(words) - 2):
-            phrase = ' '.join(words[i:i+3])
-            if phrase not in self.key_phrases:
-                self.key_phrases.add(phrase)
-            else:
-                self.forbidden_repetitions.add(phrase)
-        
-        # Limit memory usage
-        if len(self.key_phrases) > 500:
-            # Remove oldest phrases (simple FIFO approximation)
-            old_phrases = list(self.key_phrases)[:100]
-            for phrase in old_phrases:
-                self.key_phrases.discard(phrase)
+        try:
+            # Extract phrases (3-4 words)
+            words = text.lower().split()
+            
+            for i in range(len(words) - 2):
+                phrase = ' '.join(words[i:i+3])
+                # Assicurati che phrase sia sempre string
+                phrase = str(phrase).strip()
+                
+                if phrase and len(phrase) > 5:  # Solo frasi significative
+                    if phrase not in self.key_phrases:
+                        self.key_phrases.add(phrase)
+                    else:
+                        self.forbidden_repetitions.add(phrase)
+            
+            # Limit memory usage
+            if len(self.key_phrases) > 500:
+                # Convert to list, sort, and keep newest
+                phrases_list = list(self.key_phrases)
+                self.key_phrases = set(phrases_list[-400:])  # Keep last 400
+                
+        except Exception as e:
+            logger.warning(f"Repetition detection failed: {e}")
+            # Initialize empty sets if corrupted
+            self.key_phrases = set()
+            self.forbidden_repetitions = set()
     
     def _detect_style_drift(self) -> bool:
         """Detect if writing style is drifting from established pattern"""

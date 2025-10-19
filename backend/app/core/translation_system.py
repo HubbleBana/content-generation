@@ -149,8 +149,7 @@ Italian translation:"""
                 prompt=prompt,
                 options={
                     'temperature': 0.3,  # Lower temperature for consistency
-                    'num_predict': len(chunk.split()) * 2,  # Allow for Italian expansion
-                    'repetition_penalty': 1.1
+                    'num_predict': len(chunk.split()) * 2
                 }
             )
             
