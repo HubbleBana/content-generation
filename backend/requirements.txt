@@ -5,4 +5,3 @@ aiofiles==23.2.1
 pydantic==2.5.0
 python-multipart==0.0.6
 ollama==0.1.7
-asyncio-mqtt==0.14.1
