@@ -14,6 +14,14 @@ class Settings:
     LOGS_PATH: str = "/app/data/logs"
     TEMPLATES_PATH: str = "/app/data/templates"
     
+    # MISSING CONSTANTS from original system (from project docs)
+    MODEL_TEMPERATURE: float = float(os.getenv("MODEL_TEMPERATURE", "0.7"))
+    TARGET_WPM: int = int(os.getenv("TARGET_WPM", "140"))  # Words per minute
+    WORDS_PER_BEAT: int = int(os.getenv("WORDS_PER_BEAT", "600"))  # Words per story beat
+    BEATS_PER_STORY: int = int(os.getenv("BEATS_PER_STORY", "12"))  # Total beats
+    MAX_TOKENS_BEAT: int = int(os.getenv("MAX_TOKENS_BEAT", "800"))  # Max tokens per beat
+    MAX_TOKENS_OUTLINE: int = int(os.getenv("MAX_TOKENS_OUTLINE", "1500"))  # Max tokens for outline
+    
     # NEW: Multi-Model Configuration for RTX 3070Ti
     DEFAULT_MODELS = {
         "generator": "qwen2.5:7b",      # Main story generation
