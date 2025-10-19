@@ -1,0 +1,71 @@
+﻿version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sleep-stories-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - sleepai_volume:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    restart: unless-stopped
+    networks:
+      - sleep-stories-net
+
+  backend:
+    build: ./backend
+    container_name: sleep-stories-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - sleepai_volume:/app/data
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - DATA_PATH=/app/data
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - sleep-stories-net
+
+  ui:
+    build: ./ui
+    container_name: sleep-stories-ui
+    ports:
+      - "7860:7860"
+    volumes:
+      - sleepai_volume:/app/data
+    depends_on:
+      - backend
+    environment:
+      - API_URL=http://backend:8000/api
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - DATA_PATH=/app/data
+    restart: unless-stopped
+    networks:
+      - sleep-stories-net
+
+networks:
+  sleep-stories-net:
+    driver: bridge
+
+volumes:
+  sleepai_volume:
+    external: true
