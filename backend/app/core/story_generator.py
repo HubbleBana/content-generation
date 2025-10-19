@@ -21,7 +21,7 @@ class StoryGenerator:
         
         # Initialize advanced systems
         self.translator = TranslationSystem(quality_mode=translation_quality) if target_language != "en" else None
-        self.coherence_system = None
+        self.coherence_system = CoherenceSystem()
         
         logger.info(f"StoryGenerator initialized - Language: {target_language}, Translation: {translation_quality}")
     
@@ -45,7 +45,7 @@ class StoryGenerator:
             # Step 3: Initialize Systems
             update(15, 'Initializing coherence and memory systems...', 3)
             memory = MemorySystem(outline.get('story_bible', {}))
-            #self.coherence_system.initialize_story_bible(outline.get('story_bible', {}))
+            self.coherence_system.initialize_story_bible(outline.get('story_bible', {}))
             
             # Step 4: Generate English Story
             update(20, 'Generating English story content...', 4)
@@ -69,9 +69,9 @@ class StoryGenerator:
                     
                     # Update systems
                     memory.add_beat(beat.get('beat_id', beat_index), beat_text)
-                    #self.coherence_system.add_beat_context(
-                    #    beat_index, beat_text, beat
-                    #)
+                    self.coherence_system.add_beat_context(
+                        beat_index, beat_text, beat
+                    )
                     
                     full_story_english += beat_text + '\n\n'
             
@@ -140,10 +140,7 @@ class StoryGenerator:
                 response = self.client.generate(
                     model=settings.MODEL_NAME, 
                     prompt=prompt, 
-                    options={
-                        'temperature': settings.MODEL_TEMPERATURE, 
-                        'num_predict': 800
-                    }
+                    options={'temperature': settings.MODEL_TEMPERATURE, 'num_predict': 800}
                 )
                 json_text = self._extract_json(response['response'])
                 enriched = json.loads(json_text)
@@ -162,22 +159,14 @@ class StoryGenerator:
     
     async def _generate_outline_validated(self, theme: dict, duration: int) -> dict:
         target_words = duration * settings.TARGET_WPM
-        prompt = OUTLINE_GENERATION_PROMPT.format(
-            theme=json.dumps(theme), 
-            duration=duration, 
-            target_words=target_words, 
-            beats=settings.BEATS_PER_STORY
-        )
+        prompt = OUTLINE_GENERATION_PROMPT.format(theme=json.dumps(theme), duration=duration, target_words=target_words, beats=settings.BEATS_PER_STORY)
         
         for attempt in range(3):
             try:
                 response = self.client.generate(
                     model=settings.MODEL_NAME, 
                     prompt=prompt, 
-                    options={
-                        'temperature': settings.MODEL_TEMPERATURE, 
-                        'num_predict': settings.MAX_TOKENS_OUTLINE
-                    }
+                    options={'temperature': settings.MODEL_TEMPERATURE, 'num_predict': settings.MAX_TOKENS_OUTLINE}
                 )
                 json_text = self._extract_json(response['response'])
                 outline = json.loads(json_text)
@@ -223,10 +212,7 @@ class StoryGenerator:
         response = self.client.generate(
             model=settings.MODEL_NAME,
             prompt=prompt,
-            options={
-                'temperature': settings.MODEL_TEMPERATURE,
-                'num_predict': settings.MAX_TOKENS_BEAT
-            }
+            options={'temperature': settings.MODEL_TEMPERATURE, 'num_predict': settings.MAX_TOKENS_BEAT}
         )
         beat_text = response['response'].strip()
         
@@ -246,10 +232,7 @@ class StoryGenerator:
                     response = self.client.generate(
                         model=settings.MODEL_NAME,
                         prompt=improvement_prompt,
-                        options={
-                            'temperature': 0.4,  # Lower temperature for revision
-                            'num_predict': settings.MAX_TOKENS_BEAT
-                        }
+                        options={'temperature': 0.4, 'num_predict': settings.MAX_TOKENS_BEAT}
                     )
                     revised_text = response['response'].strip()
                     
@@ -280,10 +263,7 @@ class StoryGenerator:
                 response = self.client.generate(
                     model=settings.MODEL_NAME,
                     prompt=tune_prompt,
-                    options={
-                        'temperature': 0.6,
-                        'num_predict': settings.MAX_TOKENS_BEAT
-                    }
+                    options={'temperature': 0.6, 'num_predict': settings.MAX_TOKENS_BEAT}
                 )
                 beat_text = response['response'].strip()
             except Exception as e:
@@ -296,65 +276,27 @@ class StoryGenerator:
         return '\n\n'.join(lines)
     
     def _extract_json(self, text: str) -> str:
-        # Define markers as variables to avoid confusion
         json_marker = '```json'
         code_marker = '```'
-        
-        # Try to extract from ```json ... ```
         if json_marker in text:
             start = text.find(json_marker) + len(json_marker)
             end = text.find(code_marker, start)
             if end > start:
                 return text[start:end].strip()
-        
-        # Try to extract from ``` ... ```
         if code_marker in text:
             start = text.find(code_marker) + len(code_marker)
             end = text.find(code_marker, start)
             if end > start:
                 return text[start:end].strip()
-        
-        # Try regex to find JSON object
         json_match = re.search(r'\{.*\}', text, re.DOTALL)
         if json_match:
             return json_match.group(0)
-        
-        # If nothing works, return original text
         return text.strip()
 
     def _fallback_theme(self, theme: str) -> dict:
-        return {
-            'setting': theme, 
-            'time_of_day': 'dawn', 
-            'mood': 'peaceful', 
-            'sensory_elements': ['visual', 'audio'], 
-            'key_objects': [], 
-            'atmosphere': 'calm'
-        }
+        return {'setting': theme, 'time_of_day': 'dawn', 'mood': 'peaceful', 'sensory_elements': ['visual', 'audio'], 'key_objects': [], 'atmosphere': 'calm'}
     
     def _fallback_outline(self, theme: dict, duration: int) -> dict:
         target_words = duration * settings.TARGET_WPM
         words_per_beat = target_words // 12
-        return {
-            'story_bible': {
-                'setting': theme.get('setting', 'location'), 
-                'time_of_day': 'dawn', 
-                'mood_baseline': 8, 
-                'key_objects': []
-            }, 
-            'acts': [
-                {
-                    'act_number': i, 
-                    'title': ['Arrival', 'Exploration', 'Rest'][i-1], 
-                    'beats': [
-                        {
-                            'beat_id': (i-1)*4 + j, 
-                            'title': f'Beat {(i-1)*4 + j}', 
-                            'description': 'Continue the peaceful journey', 
-                            'target_words': words_per_beat, 
-                            'sensory_focus': ['sight', 'sound']
-                        } for j in range(1, 5)
-                    ]
-                } for i in range(1, 4)
-            ]
-        }
+        return {'story_bible': {'setting': theme.get('setting', 'location'), 'time_of_day': 'dawn', 'mood_baseline': 8, 'key_objects': []}, 'acts': [{'act_number': i, 'title': ['Arrival', 'Exploration', 'Rest'][i-1], 'beats': [{'beat_id': (i-1)*4 + j, 'title': f'Beat {(i-1)*4 + j}', 'description': 'Continue the peaceful journey', 'target_words': words_per_beat, 'sensory_focus': ['sight', 'sound']} for j in range(1, 5)]} for i in range(1, 4)]}
