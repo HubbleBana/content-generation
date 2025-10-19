@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, Dict
 import uuid
 import asyncio
 import json
@@ -24,8 +24,9 @@ class StoryRequest(BaseModel):
     theme: str
     duration: int = 45
     description: Optional[str] = None
-    language: str = "it"  # "it" for Italian, "en" for English
-    translation_quality: str = "high"  # "high" or "fast"
+    models: Optional[Dict[str, str]] = None  # {generator, reasoner, polisher}
+    use_reasoner: bool = True
+    use_polish: bool = True
 
 @router.post("/generate/story")
 async def generate_story(request: StoryRequest, background_tasks: BackgroundTasks):
@@ -37,23 +38,19 @@ async def generate_story(request: StoryRequest, background_tasks: BackgroundTask
         "current_step": "initializing",
         "request": request.dict(),
         "created_at": datetime.now().isoformat(),
-        "total_steps": 0,
+        "total_steps": 8,
         "current_step_number": 0
     }
     
     # Create asyncio event for real-time updates
     job_events[job_id] = asyncio.Event()
     
-    logger.info(f"Job created: {job_id} - Theme: {request.theme} - Lang: {request.language} - Quality: {request.translation_quality}")
+    logger.info(f"Job created: {job_id} - Theme: {request.theme} - models={request.models}")
 
     background_tasks.add_task(
         story_generation_pipeline,
         job_id=job_id,
-        theme=request.theme,
-        duration=request.duration,
-        description=request.description,
-        language=request.language,
-        translation_quality=request.translation_quality
+        req=request
     )
     
     return {
@@ -90,11 +87,11 @@ async def stream_job_progress(job_id: str):
                     "progress": current_progress,
                     "current_step": current_step,
                     "current_step_number": job.get("current_step_number", 0),
-                    "total_steps": job.get("total_steps", 0),
+                    "total_steps": job.get("total_steps", 8),
                     "timestamp": datetime.now().isoformat()
                 }
                 
-                yield f"data: {json.dumps(data)}\\n\\n"
+                yield f"data: {json.dumps(data)}\n\n"
                 last_progress = current_progress
                 last_step = current_step
             
@@ -111,7 +108,7 @@ async def stream_job_progress(job_id: str):
                     await asyncio.sleep(1.0)
             except asyncio.TimeoutError:
                 # Send heartbeat
-                yield f"event: heartbeat\\ndata: {{}}\\n\\n"
+                yield f"event: heartbeat\ndata: {{}}\n\n"
         
         # Cleanup
         if job_id in job_events:
@@ -149,7 +146,6 @@ async def list_jobs():
                 "job_id": jid,
                 "status": jdata["status"],
                 "theme": jdata.get("request", {}).get("theme", "unknown"),
-                "language": jdata.get("request", {}).get("language", "en"),
                 "created_at": jdata.get("created_at"),
                 "progress": jdata.get("progress", 0)
             }
@@ -157,78 +153,40 @@ async def list_jobs():
         ]
     }
 
-async def story_generation_pipeline(
-    job_id: str,
-    theme: str,
-    duration: int,
-    description: Optional[str] = None,
-    language: str = "it",
-    translation_quality: str = "high"
-):
+async def story_generation_pipeline(job_id: str, req: StoryRequest):
     try:
-        jobs[job_id]["status"] = "processing"
-        jobs[job_id]["current_step"] = "Initializing AI generators..."
-        jobs[job_id]["current_step_number"] = 1
-        jobs[job_id]["total_steps"] = 8
-        jobs[job_id]["progress"] = 5
-        
-        # Notify real-time listeners
-        if job_id in job_events:
-            job_events[job_id].set()
-        
-        generator = StoryGenerator(
-            target_language=language,
-            translation_quality=translation_quality
-        )
-        
-        jobs[job_id]["current_step"] = "Analyzing theme and setting..."
-        jobs[job_id]["progress"] = 10
-        jobs[job_id]["current_step_number"] = 2
-        
-        if job_id in job_events:
-            job_events[job_id].set()
-        
-        # AGGIUNGI questo per più granularità:
         def enhanced_update_callback(progress, step, step_num=0):
             if job_id in jobs:
+                jobs[job_id]["status"] = "processing"
                 jobs[job_id]["progress"] = progress
                 jobs[job_id]["current_step"] = step
                 if step_num > 0:
                     jobs[job_id]["current_step_number"] = step_num
-                
-                # Forza notifica SSE
                 if job_id in job_events:
                     job_events[job_id].set()
-                
-                # Mini delay per dare tempo al client di ricevere
-                import asyncio
-                import time
-                time.sleep(0.1)  # 100ms delay
         
-        result = await generator.generate_full_story(
-            theme=theme,
-            duration=duration,
-            description=description,
-            job_id=job_id,
-            update_callback=enhanced_update_callback  # ✅ USA la versione enhanced
+        enhanced_update_callback(5, "Initializing AI generators...", 1)
+        generator = StoryGenerator(
+            target_language="en",
+            models=req.models or {},
+            use_reasoner=req.use_reasoner,
+            use_polish=req.use_polish
         )
         
-        # Save both English and translated versions
+        enhanced_update_callback(10, "Analyzing theme & outline...", 2)
+        result = await generator.generate_full_story(
+            theme=req.theme,
+            duration=req.duration,
+            description=req.description,
+            job_id=job_id,
+            update_callback=enhanced_update_callback
+        )
+        
         output_dir = os.path.join(settings.OUTPUTS_PATH, job_id)
         os.makedirs(output_dir, exist_ok=True)
-        
-        # Save English version
-        if "story_text_english" in result:
-            english_path = os.path.join(output_dir, "story_english.txt")
-            with open(english_path, "w", encoding="utf-8") as f:
-                f.write(result["story_text_english"])
-            result["english_file"] = english_path
-        
-        # Save translated version
         story_path = os.path.join(output_dir, "story.txt")
         with open(story_path, "w", encoding="utf-8") as f:
-            f.write(result["story_text"])
-        
+            f.write(result["story_text"]) 
         result["output_path"] = output_dir
         result["story_file"] = story_path
         
@@ -238,31 +196,13 @@ async def story_generation_pipeline(
         jobs[job_id]["current_step_number"] = 8
         jobs[job_id]["result"] = result
         jobs[job_id]["completed_at"] = datetime.now().isoformat()
-        
-        # Notify real-time listeners
         if job_id in job_events:
             job_events[job_id].set()
-        
-        logger.info(f"job_completed job_id={job_id} language={language}")
-        
+    
     except Exception as e:
-        logger.error(f"job_failed , job_id={job_id}\\n error={str(e)}")
+        logger.error(f"job_failed , job_id={job_id}\n error={str(e)}")
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)
-        jobs[job_id]["current_step"] = f"❌ Error: {str(e)}"
         jobs[job_id]["failed_at"] = datetime.now().isoformat()
-        
-        # Notify real-time listeners
-        if job_id in job_events:
-            job_events[job_id].set()
-
-def update_job_progress(job_id: str, progress: float, step: str, step_number: int = 0):
-    if job_id in jobs:
-        jobs[job_id]["progress"] = progress
-        jobs[job_id]["current_step"] = step
-        if step_number > 0:
-            jobs[job_id]["current_step_number"] = step_number
-        
-        # Notify real-time listeners
         if job_id in job_events:
             job_events[job_id].set()
