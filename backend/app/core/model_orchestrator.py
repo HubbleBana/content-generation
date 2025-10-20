@@ -76,8 +76,6 @@ class EnhancedModelOrchestrator:
             density_factor = settings.TAPER_REDUCTION_FACTOR
         beat_plan = self._create_recursive_beat_plan(beat_idx, current_sensory, current_waypoint, density_factor)
         memory_context = "\n".join(outline_memory[-3:]) if outline_memory else "Beginning of story"
-        
-        # Build movement/destination-aware prompt
         enhanced_prompt = BEAT_GENERATION_PROMPT.format(
             story_bible=base_prompt,
             previous_text=memory_context,
@@ -88,7 +86,6 @@ class EnhancedModelOrchestrator:
             waypoint=current_waypoint or 'natural flow',
             destination_phase=destination_phase
         )
-        
         generator_output = await self._safe_generate_with_retry(self.generator_name, enhanced_prompt, options)
         self.metrics["generator_words"] += len(generator_output.split())
         reasoner_output = generator_output
@@ -117,18 +114,99 @@ class EnhancedModelOrchestrator:
         }
 
     def _extract_waypoints_from_setting(self, setting: Dict) -> List[str]:
-        default_waypoints = [
-            "entry path", "gentle bend", "small clearing", "wooden bridge", "soft moss hollow"
-        ]
+        default_waypoints = ["entry path", "gentle bend", "small clearing", "wooden bridge", "soft moss hollow"]
         return setting.get("theme", {}).get("spatial_waypoints", default_waypoints)
 
     def _destination_phase(self, progress: float) -> str:
-        if progress < 0.3:
-            return "departure"
-        if progress < 0.7:
-            return "journey"
-        if progress < 0.9:
-            return "approach"
+        if progress < 0.3: return "departure"
+        if progress < 0.7: return "journey"
+        if progress < 0.9: return "approach"
         return "arrival"
 
-    # ... (rest of existing methods unchanged) ...
+    # Missing helpers restored
+    def _calculate_coherence_stats(self, story_beats: List[Dict]) -> Dict:
+        return {
+            "total_beats": len(story_beats),
+            "sensory_transitions": len(set([b.get("sensory_mode") for b in story_beats])),
+            "avg_density_factor": sum([b.get("density_factor", 1.0) for b in story_beats])/max(1,len(story_beats)),
+            "corrections_applied": self.metrics.get("corrections_count", 0)
+        }
+
+    def _get_sensory_distribution(self, story_beats: List[Dict]) -> Dict:
+        dist: Dict[str,int] = {}
+        for b in story_beats:
+            m = b.get("sensory_mode","unknown")
+            dist[m] = dist.get(m,0)+1
+        return dist
+
+    def _create_beats_schema(self, story_beats: List[Dict]) -> Dict:
+        return {
+            "beats": [
+                {
+                    "beat_index": i,
+                    "text": b.get("text",""),
+                    "sensory_mode": b.get("sensory_mode"),
+                    "waypoint": b.get("waypoint"),
+                    "word_count": b.get("word_count"),
+                    "timing_estimate": b.get("word_count",150)/150*60,
+                    "media_cues": {
+                        "visual_focus": b.get("sensory_mode") == "sight",
+                        "audio_focus": b.get("sensory_mode") == "sound",
+                        "ambient_suggestion": b.get("waypoint","")
+                    }
+                } for i,b in enumerate(story_beats)
+            ],
+            "total_estimated_duration": sum([b.get("word_count",150)/150*60 for b in story_beats]),
+            "schema_version": "1.0"
+        }
+
+    async def _safe_generate_with_retry(self, model: str, prompt: str, options: Optional[Dict] = None) -> str:
+        opts = options or {"temperature": 0.7, "num_predict": 300}
+        last_error = None
+        for attempt in range(settings.MAX_RETRIES):
+            try:
+                response = self.client.generate(model=model, prompt=prompt, options=opts)
+                result = response.get("response","").strip()
+                if result:
+                    return result
+                else:
+                    raise ValueError("Empty response from model")
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Generate attempt {attempt+1} failed for {model}: {e}")
+                if attempt < settings.MAX_RETRIES - 1:
+                    await asyncio.sleep(settings.RETRY_DELAY)
+        logger.error(f"All attempts failed for {model}")
+        return "[Error: Unable to generate content]"
+
+    def _apply_length_control(self, text: str, target_words: int) -> str:
+        cur = len(text.split()); mi = int(target_words*0.9); ma = int(target_words*1.1)
+        if cur > ma:
+            words = text.split(); trunc = ' '.join(words[:ma])
+            if '.' in trunc:
+                s = trunc.split('.')
+                trunc = '.'.join(s[:-1]) + '.'
+            return trunc
+        return text
+
+    def _update_opener_tracking(self, text: str):
+        if not text: return
+        first = text.split('.')[0] if '.' in text else text[:50]
+        pattern = first[:20].lower().strip()
+        if pattern:
+            self.opener_usage[pattern] = self.opener_usage.get(pattern,0)+1
+
+    def _insert_tts_markers(self, story_text: str) -> str:
+        if not self.tts_markers: return story_text
+        sentences = re.split(r'[.!?]+', story_text)
+        marked = []
+        for i, s in enumerate(sentences):
+            if not s.strip(): continue
+            t = s.strip()
+            if i>0 and i % settings.TTS_BREATHE_FREQUENCY == 0:
+                t = "[BREATHE] " + t
+            if i>0 and len(t.split())>15:
+                pause = settings.TTS_PAUSE_MIN + (settings.TTS_PAUSE_MAX - settings.TTS_PAUSE_MIN) * 0.5
+                t += f" [PAUSE:{pause:.1f}]"
+            marked.append(t)
+        return '. '.join(marked) + '.'
