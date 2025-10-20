@@ -1,0 +1,24 @@
+# Enhanced UI Requirements - Updated by Jimmy
+# Gradio 5.44+ for latest features and performance improvements
+gradio>=5.44.0
+
+# HTTP client libraries for API communication
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# JSON processing and utilities
+orjson>=3.9.0  # Faster JSON processing
+
+# Optional: Enhanced logging and monitoring
+rich>=13.0.0  # Better console output
+loguru>=0.7.0  # Advanced logging
+
+# WebSocket support for real-time features (if needed in future)
+websockets>=12.0
+
+# Date/time handling
+python-dateutil>=2.8.0
+
+# Type hints and validation
+typing-extensions>=4.8.0
+pydantic>=2.5.0
