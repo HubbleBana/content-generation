@@ -41,6 +41,12 @@ services:
       - DATA_PATH=/app/data
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
+      # Gunicorn tuning to avoid worker timeouts on long GPU-bound tasks
+      - WEB_CONCURRENCY=1
+      - GUNICORN_TIMEOUT=1800           # 30 minutes
+      - GUNICORN_WORKER_CLASS=uvicorn.workers.UvicornWorker
+      - GUNICORN_KEEPALIVE=75
+      - GUNICORN_GRACEFUL_TIMEOUT=120
       # Enhanced configuration
       - SENSORY_ROTATION_ENABLED=true
       - SLEEP_TAPER_ENABLED=true
@@ -48,7 +54,7 @@ services:
       - MAX_CONCURRENT_MODELS=1
       - MAX_RETRIES=3
       - FALLBACK_MODEL=qwen3:8b
-      - OLLAMA_CONNECT_TIMEOUT=120  # Longer timeout for GPU startup
+      - OLLAMA_CONNECT_TIMEOUT=120
     deploy:
       resources:
         reservations:
@@ -66,7 +72,7 @@ services:
       interval: 30s
       timeout: 15s
       retries: 5
-      start_period: 90s  # More time for backend to wait for Ollama
+      start_period: 90s
 
   ui:
     build: ./ui
@@ -77,7 +83,7 @@ services:
       - sleepai_volume:/app/data
       - ./ui/logs:/app/logs
     depends_on:
-      - backend  # Remove condition to avoid cascading blocks
+      - backend
     environment:
       - API_URL=http://backend:8000/api
       - GRADIO_SERVER_NAME=0.0.0.0
@@ -85,7 +91,6 @@ services:
       - DATA_PATH=/app/data
       - GRADIO_THEME=soft
       - GRADIO_ANALYTICS_ENABLED=false
-      # Enhanced UI settings
       - UI_AUTO_REFRESH=true
       - UI_MAX_HISTORY=50
       - UI_STREAMING_ENABLED=true
