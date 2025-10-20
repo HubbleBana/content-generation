@@ -114,4 +114,31 @@ class Settings:
     RETRY_DELAY: float = 1.0
     FALLBACK_MODEL: str = "qwen3:8b"
 
+    # Embodied Journey
+    MOVEMENT_VERBS_REQUIRED: int = int(os.getenv("MOVEMENT_VERBS_REQUIRED", "1"))
+    TRANSITION_TOKENS_REQUIRED: int = int(os.getenv("TRANSITION_TOKENS_REQUIRED", "1"))
+    SENSORY_COUPLING: int = int(os.getenv("SENSORY_COUPLING", "2"))
+    DOWNSHIFT_REQUIRED: bool = os.getenv("DOWNSHIFT_REQUIRED", "true").lower() == "true"
+    POV_ENFORCE_SECOND_PERSON: bool = os.getenv("POV_ENFORCE_SECOND_PERSON", "true").lower() == "true"
+
+    MOVEMENT_VERBS = [
+        "incammin", "avanz", "attravers", "super", "raggiung", "scend", "risal", "volt", "prosegu", "sost"
+    ]
+    TRANSITION_TOKENS = [
+        "più avanti", "oltre il", "svolti", "superi", "raggiungi", "scendi", "risali", "appena dopo", "di fronte", "poco più in là"
+    ]
+
+    # Destination Architecture
+    DESTINATION_PROMISE_BEAT: int = int(os.getenv("DESTINATION_PROMISE_BEAT", "1"))
+    ARRIVAL_SIGNALS_START: float = float(os.getenv("ARRIVAL_SIGNALS_START", "0.7"))
+    SETTLEMENT_BEATS: int = int(os.getenv("SETTLEMENT_BEATS", "2"))
+    CLOSURE_REQUIRED: bool = os.getenv("CLOSURE_REQUIRED", "true").lower() == "true"
+
+    DESTINATION_ARCHETYPES = {
+        "safe_shelter": ["cottage", "cabin", "sanctuary", "grove"],
+        "peaceful_vista": ["meadow", "clearing", "overlook", "garden"],
+        "restorative_water": ["pool", "stream", "cove", "spring"],
+        "sacred_space": ["temple", "circle", "altar", "threshold"]
+    }
+
 settings = Settings()
