@@ -16,88 +16,86 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# In-memory job storage with asyncio events for real-time updates
-jobs = {}
-job_events = {}  # Store asyncio events for real-time notifications
+# In-memory job storage and events
+jobs: Dict[str, Dict[str, Any]] = {}
+job_events: Dict[str, asyncio.Event] = {}
 
 class ModelConfig(BaseModel):
-    """Configuration for multi-model setup."""
-    generator: Optional[str] = Field(None, description="Generator model name")
-    reasoner: Optional[str] = Field(None, description="Reasoner model name")
-    polisher: Optional[str] = Field(None, description="Polisher model name")
+    generator: Optional[str] = None
+    reasoner: Optional[str] = None
+    polisher: Optional[str] = None
 
 class EnhancedStoryRequest(BaseModel):
-    """Enhanced story request with all new parameters."""
-    theme: str = Field(..., description="Story theme or setting")
-    duration: int = Field(45, description="Target duration in minutes")
-    description: Optional[str] = Field(None, description="Additional story description")
-    
-    # Multi-model configuration
-    models: Optional[ModelConfig] = Field(None, description="Model configuration")
-    use_reasoner: bool = Field(True, description="Enable reasoner stage (DeepSeek-R1)")
-    use_polish: bool = Field(True, description="Enable polisher stage (Mistral-7B)")
-    
-    # Quality enhancement flags
-    tts_markers: bool = Field(False, description="Insert TTS markers [PAUSE:x.x] and [BREATHE]")
-    strict_schema: bool = Field(False, description="Return strict JSON schema with beats")
-    
-    # Optional advanced settings
-    sensory_rotation: Optional[bool] = Field(None, description="Enable sensory rotation (default: from config)")
-    sleep_taper: Optional[bool] = Field(None, description="Enable sleep-taper (default: from config)")
-    custom_waypoints: Optional[list] = Field(None, description="Custom waypoints for progression")
-
-# Legacy support - keep old request format working
-class StoryRequest(BaseModel):
     theme: str
     duration: int = 45
     description: Optional[str] = None
-    models: Optional[Dict[str, str]] = None  # {generator, reasoner, polisher}
+
+    models: Optional[ModelConfig] = None
     use_reasoner: bool = True
     use_polish: bool = True
 
+    tts_markers: bool = False
+    strict_schema: bool = False
+
+    sensory_rotation: Optional[bool] = None
+    sleep_taper: Optional[bool] = None
+    custom_waypoints: Optional[list] = None
+
+    # Advanced tweakables (optional; UI presets fill these)
+    temps: Optional[Dict[str, float]] = None  # {"generator":0.7,"reasoner":0.3,"polisher":0.4}
+    beats: Optional[int] = None
+    words_per_beat: Optional[int] = None
+    tolerance: Optional[float] = None  # ±
+    taper: Optional[Dict[str, float]] = None  # {"start_pct":0.8,"reduction":0.7}
+    rotation: Optional[bool] = None
+
 @router.post("/generate/story")
 async def generate_story(request: EnhancedStoryRequest, background_tasks: BackgroundTasks):
-    """Enhanced story generation endpoint with multi-model support."""
     job_id = str(uuid.uuid4())
-    
-    # Convert models to dict format for compatibility
+
     models_dict = {}
     if request.models:
-        if request.models.generator:
-            models_dict["generator"] = request.models.generator
-        if request.models.reasoner:
-            models_dict["reasoner"] = request.models.reasoner
-        if request.models.polisher:
-            models_dict["polisher"] = request.models.polisher
-    
+        if request.models.generator: models_dict["generator"] = request.models.generator
+        if request.models.reasoner: models_dict["reasoner"] = request.models.reasoner
+        if request.models.polisher: models_dict["polisher"] = request.models.polisher
+
+    # Initialize job record with enhanced telemetry fields
     jobs[job_id] = {
         "status": "started",
         "progress": 0,
         "current_step": "initializing",
-        "request": request.dict(),
-        "created_at": datetime.now().isoformat(),
-        "total_steps": 8,
         "current_step_number": 0,
+        "total_steps": 8,
+        "created_at": datetime.now().isoformat(),
+        "request": request.dict(),
         "enhanced_features": {
             "tts_markers": request.tts_markers,
             "strict_schema": request.strict_schema,
             "use_reasoner": request.use_reasoner,
             "use_polish": request.use_polish,
             "models": models_dict or settings.DEFAULT_MODELS
-        }
+        },
+        # Micro progress
+        "beat": {"index": 0, "total": 0, "stage": "init", "stage_progress": 0},
+        "models": {
+            "generator": models_dict.get("generator") if models_dict else settings.DEFAULT_MODELS["generator"],
+            "reasoner": models_dict.get("reasoner") if models_dict else settings.DEFAULT_MODELS["reasoner"],
+            "polisher": models_dict.get("polisher") if models_dict else settings.DEFAULT_MODELS["polisher"],
+        },
+        "temps": request.temps or {"generator": 0.7, "reasoner": 0.3, "polisher": 0.4},
+        "quality": {
+            "sensory_rotation": request.rotation if request.rotation is not None else settings.SENSORY_ROTATION_ENABLED,
+            "sleep_taper": {
+                "start_pct": (request.taper or {}).get("start_pct", settings.TAPER_START_PERCENTAGE),
+                "reduction": (request.taper or {}).get("reduction", settings.TAPER_REDUCTION_FACTOR),
+            }
+        },
+        "timing": {"elapsed_sec": 0, "eta_sec": None},
     }
-    
-    # Create asyncio event for real-time updates
-    job_events[job_id] = asyncio.Event()
-    
-    logger.info(f"Enhanced job created: {job_id} - Theme: {request.theme} - Models: {models_dict} - TTS: {request.tts_markers} - Schema: {request.strict_schema}")
 
-    background_tasks.add_task(
-        enhanced_story_generation_pipeline,
-        job_id=job_id,
-        req=request
-    )
-    
+    job_events[job_id] = asyncio.Event()
+
+    background_tasks.add_task(enhanced_story_generation_pipeline, job_id=job_id, req=request)
     return {
         "job_id": job_id,
         "status": "processing",
@@ -110,85 +108,54 @@ async def generate_story(request: EnhancedStoryRequest, background_tasks: Backgr
         }
     }
 
-# Legacy endpoint for backward compatibility
-@router.post("/generate/story/legacy")
-async def generate_story_legacy(request: StoryRequest, background_tasks: BackgroundTasks):
-    """Legacy story generation endpoint for backward compatibility."""
-    # Convert legacy request to enhanced request
-    enhanced_request = EnhancedStoryRequest(
-        theme=request.theme,
-        duration=request.duration,
-        description=request.description,
-        models=ModelConfig(
-            generator=request.models.get("generator") if request.models else None,
-            reasoner=request.models.get("reasoner") if request.models else None,
-            polisher=request.models.get("polisher") if request.models else None
-        ) if request.models else None,
-        use_reasoner=request.use_reasoner,
-        use_polish=request.use_polish,
-        tts_markers=False,
-        strict_schema=False
-    )
-    
-    return await generate_story(enhanced_request, background_tasks)
-
-@router.get("/generate/{job_id}/status")
-async def get_job_status(job_id: str):
-    """Get job status with enhanced metrics."""
-    if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    job = jobs[job_id]
-    response = dict(job)
-    
-    # Add enhanced metrics if available
-    if "result" in job and job["result"]:
-        result = job["result"]
-        if "metrics" in result:
-            response["generation_metrics"] = result["metrics"]
-        if "coherence_stats" in result:
-            response["coherence_stats"] = result["coherence_stats"]
-        if "memory_stats" in result:
-            response["memory_stats"] = result["memory_stats"]
-    
-    return response
-
 @router.get("/generate/{job_id}/stream")
 async def stream_job_progress(job_id: str):
-    """Server-Sent Events endpoint for real-time progress updates"""
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     async def event_stream() -> AsyncGenerator[str, None]:
-        last_progress = -1
-        last_step = ""
-        
+        last_snapshot = None
+        start = datetime.now()
+
+        def snapshot(job: Dict[str, Any]) -> Dict[str, Any]:
+            # compute elapsed
+            elapsed = (datetime.now() - datetime.fromisoformat(job["created_at"])).total_seconds()
+            job["timing"]["elapsed_sec"] = elapsed
+
+            # rough ETA if beats known
+            bi = job["beat"].get("index", 0); bt = job["beat"].get("total", 0)
+            if bt and bi > 0:
+                avg_per_beat = elapsed / bi
+                job["timing"]["eta_sec"] = max(0, avg_per_beat * (bt - bi))
+            else:
+                job["timing"]["eta_sec"] = None
+
+            return {
+                "status": job["status"],
+                "progress": job["progress"],
+                "current_step": job["current_step"],
+                "current_step_number": job.get("current_step_number", 0),
+                "total_steps": job.get("total_steps", 8),
+                "beat": job.get("beat", {}),
+                "models": job.get("models", {}),
+                "temps": job.get("temps", {}),
+                "quality": job.get("quality", {}),
+                "timing": job.get("timing", {}),
+                "timestamp": datetime.now().isoformat(),
+                "enhanced_features": job.get("enhanced_features", {})
+            }
+
         while job_id in jobs:
             job = jobs[job_id]
-            current_progress = job.get("progress", 0)
-            current_step = job.get("current_step", "")
-            
-            # Only send update if something changed
-            if current_progress != last_progress or current_step != last_step:
-                data = {
-                    "status": job["status"],
-                    "progress": current_progress,
-                    "current_step": current_step,
-                    "current_step_number": job.get("current_step_number", 0),
-                    "total_steps": job.get("total_steps", 8),
-                    "timestamp": datetime.now().isoformat(),
-                    "enhanced_features": job.get("enhanced_features", {})
-                }
-                
+            data = snapshot(job)
+
+            if data != last_snapshot:
                 yield f"data: {json.dumps(data)}\n\n"
-                last_progress = current_progress
-                last_step = current_step
-            
-            # If job is completed or failed, send final status and break
+                last_snapshot = data
+
             if job["status"] in ["completed", "failed"]:
                 break
-                
-            # Wait for next update or timeout
+
             try:
                 if job_id in job_events:
                     await asyncio.wait_for(job_events[job_id].wait(), timeout=1.0)
@@ -196,39 +163,45 @@ async def stream_job_progress(job_id: str):
                 else:
                     await asyncio.sleep(1.0)
             except asyncio.TimeoutError:
-                # Send heartbeat
-                yield f"event: heartbeat\ndata: {{}}\n\n"
-        
-        # Cleanup
+                yield "event: heartbeat\ndata: {}\n\n"
+
         if job_id in job_events:
             del job_events[job_id]
-    
-    return StreamingResponse(
-        event_stream(),
+
+    return StreamingResponse(event_stream(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Cache-Control"
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no", "Access-Control-Allow-Origin": "*"}
     )
+
+@router.get("/generate/{job_id}/telemetry")
+async def get_job_telemetry(job_id: str):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    return {
+        "status": job["status"],
+        "progress": job["progress"],
+        "current_step": job["current_step"],
+        "current_step_number": job["current_step_number"],
+        "total_steps": job["total_steps"],
+        "beat": job["beat"],
+        "models": job["models"],
+        "temps": job["temps"],
+        "quality": job["quality"],
+        "timing": job["timing"],
+        "created_at": job["created_at"],
+        "request": job["request"]
+    }
 
 @router.get("/generate/{job_id}/result")
 async def get_job_result(job_id: str):
-    """Get job result with enhanced output format."""
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-    
     job = jobs[job_id]
-    
     if job["status"] != "completed":
         raise HTTPException(status_code=400, detail="Job not completed yet")
-    
+
     result = job.get("result", {})
-    
-    # Enhanced response format
     enhanced_result = {
         "job_id": job_id,
         "story_text": result.get("story_text", ""),
@@ -247,16 +220,12 @@ async def get_job_result(job_id: str):
             "output_path": result.get("output_path")
         }
     }
-    
-    # Add strict schema if enabled
     if result.get("beats_schema"):
         enhanced_result["beats_schema"] = result["beats_schema"]
-    
     return enhanced_result
 
 @router.get("/jobs")
 async def list_jobs():
-    """List all jobs with enhanced information."""
     return {
         "jobs": [
             {
@@ -274,7 +243,6 @@ async def list_jobs():
 
 @router.get("/models/presets")
 async def get_model_presets():
-    """Get available model presets for the UI."""
     return {
         "presets": settings.MODEL_PRESETS,
         "default_models": settings.DEFAULT_MODELS,
@@ -289,10 +257,9 @@ async def get_model_presets():
 
 @router.get("/health/enhanced")
 async def health_check_enhanced():
-    """Enhanced health check with model and feature status."""
     return {
         "status": "healthy",
-        "version": "2.0.0-enhanced",
+        "version": "2.1.0-enhanced",
         "features": {
             "multi_model_orchestration": True,
             "quality_enhancements": True,
@@ -310,68 +277,85 @@ async def health_check_enhanced():
     }
 
 async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequest):
-    """Enhanced story generation pipeline with all new features."""
     try:
-        def enhanced_update_callback(progress, step, step_num=0, stage_metrics=None):
+        # Step helper to emit macro progress
+        def emit(step_pct, step_name, step_num=None, beat=None):
             if job_id in jobs:
                 jobs[job_id]["status"] = "processing"
-                jobs[job_id]["progress"] = progress
-                jobs[job_id]["current_step"] = step
-                if step_num > 0:
+                jobs[job_id]["progress"] = step_pct
+                jobs[job_id]["current_step"] = step_name
+                if step_num is not None:
                     jobs[job_id]["current_step_number"] = step_num
-                if stage_metrics:
-                    jobs[job_id]["stage_metrics"] = stage_metrics
+                if beat:
+                    jobs[job_id]["beat"].update(beat)
                 if job_id in job_events:
                     job_events[job_id].set()
-        
-        enhanced_update_callback(5, "Initializing enhanced AI generators...", 1)
-        
-        # Convert models to dict format if provided
+
+        emit(5, "Initializing enhanced AI generators...", 1)
+
         models_dict = {}
         if req.models:
-            if req.models.generator:
-                models_dict["generator"] = req.models.generator
-            if req.models.reasoner:
-                models_dict["reasoner"] = req.models.reasoner
-            if req.models.polisher:
-                models_dict["polisher"] = req.models.polisher
-        
-        generator = StoryGenerator(
+            if req.models.generator: models_dict["generator"] = req.models.generator
+            if req.models.reasoner: models_dict["reasoner"] = req.models.reasoner
+            if req.models.polisher: models_dict["polisher"] = req.models.polisher
+
+        gen = StoryGenerator(
             target_language="en",
-            models=models_dict,
+            models=models_dict or None,
             use_reasoner=req.use_reasoner,
             use_polish=req.use_polish,
             tts_markers=req.tts_markers,
             strict_schema=req.strict_schema
         )
-        
-        enhanced_update_callback(10, "Analyzing theme with enhanced quality system...", 2)
-        
-        # Call enhanced generation method
-        result = await generator.generate_enhanced_story(
+
+        emit(10, "Analyzing theme...", 2)
+        # theme analysis happens inside generator
+
+        # Attach beat-stage callbacks into orchestrator
+        orch = gen.orchestrator
+
+        async def on_stage_start(beat_idx: int, total_beats: int, stage: str):
+            emit(jobs[job_id]["progress"], jobs[job_id]["current_step"],
+                 jobs[job_id]["current_step_number"],
+                 beat={"index": beat_idx + 1, "total": total_beats, "stage": stage, "stage_progress": 0})
+
+        async def on_stage_end(beat_idx: int, total_beats: int, stage: str, words: int):
+            emit(jobs[job_id]["progress"], jobs[job_id]["current_step"],
+                 jobs[job_id]["current_step_number"],
+                 beat={"index": beat_idx + 1, "total": total_beats, "stage": stage, "stage_progress": 100})
+
+        # Monkey-patch callbacks into orchestrator instance
+        orch.on_stage_start = on_stage_start
+        orch.on_stage_end = on_stage_end
+
+        emit(15, "Generating outline...", 3)
+
+        # Run generation (will invoke callbacks)
+        result = await gen.generate_enhanced_story(
             theme=req.theme,
             duration=req.duration,
             description=req.description,
             job_id=job_id,
-            update_callback=enhanced_update_callback,
+            update_callback=lambda p, s, n, m: emit(p, s, n),
             custom_waypoints=req.custom_waypoints
         )
-        
+
+        emit(95, "Finalizing artifacts...", 7)
+
         # Save output files
         output_dir = os.path.join(settings.OUTPUTS_PATH, job_id)
         os.makedirs(output_dir, exist_ok=True)
-        
+
         story_path = os.path.join(output_dir, "story.txt")
         with open(story_path, "w", encoding="utf-8") as f:
-            f.write(result["story_text"]) 
-        
-        # Save enhanced outputs
+            f.write(result["story_text"])
+
         if result.get("beats_schema"):
             schema_path = os.path.join(output_dir, "beats_schema.json")
             with open(schema_path, "w", encoding="utf-8") as f:
                 json.dump(result["beats_schema"], f, indent=2)
             result["schema_file"] = schema_path
-        
+
         if result.get("metrics"):
             metrics_path = os.path.join(output_dir, "generation_metrics.json")
             with open(metrics_path, "w", encoding="utf-8") as f:
@@ -381,10 +365,10 @@ async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequ
                     "memory_stats": result.get("memory_stats", {})
                 }, f, indent=2)
             result["metrics_file"] = metrics_path
-        
+
         result["output_path"] = output_dir
         result["story_file"] = story_path
-        
+
         jobs[job_id]["status"] = "completed"
         jobs[job_id]["progress"] = 100
         jobs[job_id]["current_step"] = "✅ Enhanced generation complete!"
@@ -393,32 +377,12 @@ async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequ
         jobs[job_id]["completed_at"] = datetime.now().isoformat()
         if job_id in job_events:
             job_events[job_id].set()
-    
-    except Exception as e:
-        logger.error(f"Enhanced generation failed, job_id={job_id}\n error={str(e)}")
-        jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(e)
-        jobs[job_id]["failed_at"] = datetime.now().isoformat()
-        if job_id in job_events:
-            job_events[job_id].set()
 
-# Keep legacy pipeline for compatibility
-async def story_generation_pipeline(job_id: str, req: StoryRequest):
-    """Legacy story generation pipeline for backward compatibility."""
-    # Convert to enhanced request and use enhanced pipeline
-    enhanced_req = EnhancedStoryRequest(
-        theme=req.theme,
-        duration=req.duration,
-        description=req.description,
-        models=ModelConfig(
-            generator=req.models.get("generator") if req.models else None,
-            reasoner=req.models.get("reasoner") if req.models else None,
-            polisher=req.models.get("polisher") if req.models else None
-        ) if req.models else None,
-        use_reasoner=req.use_reasoner,
-        use_polish=req.use_polish,
-        tts_markers=False,
-        strict_schema=False
-    )
-    
-    await enhanced_story_generation_pipeline(job_id, enhanced_req)
+    except Exception as e:
+        logger.error(f"Enhanced generation failed, job_id={job_id} error={str(e)}")
+        if job_id in jobs:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = str(e)
+            jobs[job_id]["failed_at"] = datetime.now().isoformat()
+            if job_id in job_events:
+                job_events[job_id].set()
