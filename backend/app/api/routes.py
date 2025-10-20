@@ -285,200 +285,136 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 
 # Thread pool globale
-executor = ThreadPoolExecutor(max_workers=1)
+# routes.py — ripristino generazione reale con orchestrator, senza cambiare le API
+
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+import os, json
+from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
+
+# Thread pool unico per la generazione (evita conflitti GPU e conserva memoria)
+_executor = ThreadPoolExecutor(max_workers=1)
+
+async def _set_event_threadsafe(loop: asyncio.AbstractEventLoop, ev: asyncio.Event):
+    # Helper per svegliare gli stream in modo sicuro dal thread di background
+    ev.set()
 
 async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequest):
-    """Pipeline arricchita con beat reali e storico generazioni"""
-    
-    main_loop = asyncio.get_running_loop()
-    
-    def emit_sync(step_pct, step_name, step_num=None, beat=None, generation_step=None, content_preview=None):
-        """Emit arricchito con contenuto generativo"""
-        if job_id in jobs:
-            jobs[job_id]["status"] = "processing"
-            jobs[job_id]["progress"] = step_pct
-            jobs[job_id]["current_step"] = step_name
-            if step_num is not None:
-                jobs[job_id]["current_step_number"] = step_num
-            if beat:
-                jobs[job_id]["beat"].update(beat)
-            
-            # 🆕 STORICO GENERAZIONI
-            if generation_step and content_preview:
-                if "generation_history" not in jobs[job_id]:
-                    jobs[job_id]["generation_history"] = []
-                
-                jobs[job_id]["generation_history"].append({
-                    "step": generation_step,
-                    "timestamp": datetime.now().isoformat(),
-                    "content_preview": content_preview[:200] + "..." if len(content_preview) > 200 else content_preview,
-                    "word_count": len(content_preview.split()) if content_preview else 0,
-                    "beat_context": beat or {}
+    """
+    Esegue la generazione REALE usando StoryGenerator.generate_enhanced_story,
+    senza bloccare l'event loop. Collega gli hook dell'orchestrator per
+    emettere beat/stage nello stream SSE.
+    """
+    loop = asyncio.get_running_loop()
+
+    def emit(progress: float, step: str, step_num: int | None = None, stage_metrics: dict | None = None):
+        # stage_metrics facoltativo dal generator (compatibile con generate_enhanced_story)
+        if job_id not in jobs:
+            return
+        jobs[job_id]["status"] = "processing"
+        jobs[job_id]["progress"] = float(progress)
+        jobs[job_id]["current_step"] = step
+        if step_num is not None:
+            jobs[job_id]["current_step_number"] = step_num
+        # Se stage_metrics contiene info beat/stage, aggiorna lo stato
+        # Expected: stage_metrics può contenere chiavi come {"beat": {"index":..,"total":..,"stage":..,"stage_progress":..}}
+        if stage_metrics and isinstance(stage_metrics, dict):
+            beat_info = stage_metrics.get("beat")
+            if isinstance(beat_info, dict):
+                jobs[job_id]["beat"].update({
+                    "index": beat_info.get("index", jobs[job_id]["beat"].get("index", 0)),
+                    "total": beat_info.get("total", jobs[job_id]["beat"].get("total", 0)),
+                    "stage": beat_info.get("stage", jobs[job_id]["beat"].get("stage", "")),
+                    "stage_progress": beat_info.get("stage_progress", jobs[job_id]["beat"].get("stage_progress", 0)),
                 })
-                
-                # Mantieni solo ultime 10 entries per non appesantire
-                if len(jobs[job_id]["generation_history"]) > 10:
-                    jobs[job_id]["generation_history"] = jobs[job_id]["generation_history"][-10:]
-            
-            # 🆕 CURRENT GENERATION STATUS
-            if generation_step:
-                jobs[job_id]["current_generation"] = {
-                    "step": generation_step,
-                    "preview": content_preview[:100] + "..." if content_preview and len(content_preview) > 100 else content_preview or "",
-                    "timestamp": datetime.now().isoformat()
-                }
-            
-            if job_id in job_events:
-                main_loop.call_soon_threadsafe(lambda: asyncio.create_task(set_event_safe(job_id)))
+        # Sveglia gli stream (thread-safe)
+        if job_id in job_events:
+            loop.call_soon_threadsafe(asyncio.create_task, _set_event_threadsafe(loop, job_events[job_id]))
 
-    async def set_event_safe(jid):
-        if jid in job_events:
-            job_events[jid].set()
-
-    def blocking_generation_work():
-        """Generazione con beat reali e contenuto preview"""
+    def blocking_generation():
+        """
+        Eseguita nel thread pool:
+        - Crea StoryGenerator reale con orchestrator
+        - Collega on_stage_start/on_stage_end per i beat
+        - Chiama generate_enhanced_story (async) nel loop del thread
+        - Salva file output e completa lo stato
+        """
         try:
-            emit_sync(5, "Initializing enhanced AI generators...", 1)
-            
+            # Costruisci mappa modelli dal request (opzionale)
             models_dict = {}
             if req.models:
                 if req.models.generator: models_dict["generator"] = req.models.generator
                 if req.models.reasoner: models_dict["reasoner"] = req.models.reasoner
                 if req.models.polisher: models_dict["polisher"] = req.models.polisher
 
-            emit_sync(10, "Setting up story parameters...", 2)
-            
-            # 🆕 SIMULA BEAT REALI con contenuto generativo
-            total_beats = req.beats or 12
-            target_duration = req.duration or 45
-            
-            # Initialize beat tracking
-            emit_sync(15, "Planning story structure...", 3, 
-                     beat={"index": 0, "total": total_beats, "stage": "planning", "stage_progress": 0})
-            
-            emit_sync(20, "Generating story outline...", 3,
-                     generation_step="outline",
-                     content_preview="Creating story outline for: " + req.theme)
-            
-            time.sleep(2)  # Simula outline generation
-            
-            # 🆕 GENERAZIONE BEAT BY BEAT
-            story_parts = []
-            
-            for beat_idx in range(total_beats):
-                beat_progress = (beat_idx / total_beats) * 70  # 70% del progresso per i beat
-                base_progress = 25 + beat_progress
-                
-                # Beat generation phases
-                phases = [
-                    ("drafting", "Drafting beat content..."),
-                    ("refining", "Refining narrative flow..."), 
-                    ("sensory", "Adding sensory details..."),
-                    ("finalizing", "Finalizing beat...")
-                ]
-                
-                for phase_idx, (phase_name, phase_desc) in enumerate(phases):
-                    phase_progress = (phase_idx + 1) / len(phases) * 100
-                    
-                    emit_sync(
-                        base_progress + (beat_progress / total_beats * (phase_idx + 1)),
-                        f"Beat {beat_idx + 1}/{total_beats}: {phase_desc}",
-                        4,
-                        beat={
-                            "index": beat_idx + 1,
-                            "total": total_beats,
-                            "stage": phase_name,
-                            "stage_progress": phase_progress
-                        },
-                        generation_step=f"beat_{beat_idx + 1}_{phase_name}",
-                        content_preview=f"Generating {phase_name} for beat {beat_idx + 1}: In this peaceful moment, you find yourself surrounded by {req.theme}..."
+            # Istanzia il generatore REALE
+            gen = StoryGenerator(
+                target_language="en",
+                models=models_dict or None,
+                use_reasoner=req.use_reasoner,
+                use_polish=req.use_polish,
+                tts_markers=req.tts_markers,
+                strict_schema=req.strict_schema
+            )
+
+            # Collega gli hook dell'orchestrator per battere/stage reali (se presenti)
+            orch = getattr(gen, "orchestrator", None)
+            if orch is not None:
+                async def on_stage_start(beat_idx: int, total_beats: int, stage: str):
+                    emit(jobs[job_id]["progress"], jobs[job_id]["current_step"],
+                         jobs[job_id]["current_step_number"],
+                         stage_metrics={"beat": {"index": beat_idx + 1, "total": total_beats, "stage": stage, "stage_progress": 0}})
+                async def on_stage_end(beat_idx: int, total_beats: int, stage: str, words: int):
+                    emit(jobs[job_id]["progress"], jobs[job_id]["current_step"],
+                         jobs[job_id]["current_step_number"],
+                         stage_metrics={"beat": {"index": beat_idx + 1, "total": total_beats, "stage": stage, "stage_progress": 100}})
+                orch.on_stage_start = on_stage_start
+                orch.on_stage_end = on_stage_end
+
+            # Esegui la generazione async nel loop del thread (senza bloccare l'event loop principale)
+            t_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(t_loop)
+            try:
+                # update_callback richiama emit(), farà avanzare progress/step e, se stage_metrics è passato,
+                # popolerà i beat/stage reali nel job state
+                result = t_loop.run_until_complete(
+                    gen.generate_enhanced_story(
+                        theme=req.theme,
+                        duration=req.duration,
+                        description=req.description,
+                        job_id=job_id,
+                        update_callback=emit,
+                        custom_waypoints=req.custom_waypoints
                     )
-                    
-                    time.sleep(1)  # Simula generation time
-                
-                # Aggiungi contenuto generato per questo beat
-                beat_content = f"Beat {beat_idx + 1}: As you move through {req.theme}, a sense of tranquility washes over you. The gentle rhythm of your breathing synchronizes with the natural world around you..."
-                story_parts.append(beat_content)
-                
-                emit_sync(
-                    base_progress + (beat_progress / total_beats),
-                    f"Beat {beat_idx + 1}/{total_beats} completed",
-                    4,
-                    beat={
-                        "index": beat_idx + 1,
-                        "total": total_beats,
-                        "stage": "completed",
-                        "stage_progress": 100
-                    },
-                    generation_step=f"beat_{beat_idx + 1}_completed",
-                    content_preview=beat_content
                 )
-            
-            # 🆕 REASONING PHASE (se abilitato)
-            if req.use_reasoner:
-                emit_sync(85, "Applying reasoning and coherence checks...", 5,
-                         generation_step="reasoning_start",
-                         content_preview="Analyzing story coherence and narrative flow...")
-                
-                time.sleep(3)
-                
-                reasoned_content = "Reasoned version: " + " ".join(story_parts[:2])  # Preview
-                emit_sync(90, "Reasoning complete - story coherence improved", 5,
-                         generation_step="reasoning_complete",
-                         content_preview=reasoned_content)
-            
-            # 🆕 POLISHING PHASE (se abilitato)
-            if req.use_polish:
-                emit_sync(92, "Polishing language and style...", 6,
-                         generation_step="polishing_start", 
-                         content_preview="Enhancing prose quality and narrative style...")
-                
-                time.sleep(2)
-                
-                polished_content = "Polished version: " + " ".join(story_parts[:2])  # Preview
-                emit_sync(95, "Polishing complete - enhanced prose quality", 6,
-                         generation_step="polishing_complete",
-                         content_preview=polished_content)
-            
-            # Final story assembly
-            emit_sync(98, "Assembling final story...", 7)
-            
-            full_story = "\n\n".join(story_parts)
-            
-            # Save files
+            finally:
+                t_loop.close()
+
+            # Persistenza file output (reale)
             output_dir = os.path.join(settings.OUTPUTS_PATH, job_id)
             os.makedirs(output_dir, exist_ok=True)
 
             story_path = os.path.join(output_dir, "story.txt")
             with open(story_path, "w", encoding="utf-8") as f:
-                f.write(full_story)
+                f.write(result.get("story_text", ""))
 
-            result = {
-                "story_text": full_story,
-                "metrics": {
-                    "word_count": len(full_story.split()),
-                    "generation_time": target_duration * 60,  # Converti in secondi
-                    "beats_generated": total_beats,
-                    "reasoning_applied": req.use_reasoner,
-                    "polishing_applied": req.use_polish
-                },
-                "beats_schema": {
-                    "beats": [
-                        {
-                            "beat_index": i,
-                            "text": story_parts[i] if i < len(story_parts) else "",
-                            "timing_estimate": (target_duration * 60) / total_beats,
-                            "sensory_mode": ["sight", "sound", "touch", "proprioception"][i % 4]
-                        }
-                        for i in range(total_beats)
-                    ],
-                    "total_estimated_duration": target_duration * 60
-                },
-                "output_path": output_dir,
-                "story_file": story_path
-            }
+            if result.get("beats_schema"):
+                schema_path = os.path.join(output_dir, "beats_schema.json")
+                with open(schema_path, "w", encoding="utf-8") as f:
+                    json.dump(result["beats_schema"], f, indent=2)
 
-            # Final completion
+            if result.get("metrics"):
+                metrics_path = os.path.join(output_dir, "generation_metrics.json")
+                with open(metrics_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "metrics": result["metrics"],
+                        "coherence_stats": result.get("coherence_stats", {}),
+                        "memory_stats": result.get("memory_stats", {})
+                    }, f, indent=2)
+
+            # Completa job
             if job_id in jobs:
                 jobs[job_id]["status"] = "completed"
                 jobs[job_id]["progress"] = 100
@@ -486,40 +422,19 @@ async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequ
                 jobs[job_id]["current_step_number"] = 8
                 jobs[job_id]["result"] = result
                 jobs[job_id]["completed_at"] = datetime.now().isoformat()
-                
-                # 🆕 Final generation log
-                jobs[job_id]["final_summary"] = {
-                    "total_beats": total_beats,
-                    "total_words": len(full_story.split()),
-                    "generation_phases": ["outline", "beats", "reasoning" if req.use_reasoner else None, "polishing" if req.use_polish else None],
-                    "completion_time": datetime.now().isoformat()
-                }
-            
-            if job_id in job_events:
-                main_loop.call_soon_threadsafe(lambda: asyncio.create_task(set_event_safe(job_id)))
-            
+                if job_id in job_events:
+                    loop.call_soon_threadsafe(asyncio.create_task, _set_event_threadsafe(loop, job_events[job_id]))
             return True
 
         except Exception as e:
-            logger.error(f"Enhanced generation failed, job_id={job_id} error={str(e)}")
+            logger.exception(f"Generation failed (job_id={job_id}): {e}")
             if job_id in jobs:
                 jobs[job_id]["status"] = "failed"
                 jobs[job_id]["error"] = str(e)
                 jobs[job_id]["failed_at"] = datetime.now().isoformat()
-                
-            if job_id in job_events:
-                main_loop.call_soon_threadsafe(lambda: asyncio.create_task(set_event_safe(job_id)))
-            
+                if job_id in job_events:
+                    loop.call_soon_threadsafe(asyncio.create_task, _set_event_threadsafe(loop, job_events[job_id]))
             return False
 
-    try:
-        await main_loop.run_in_executor(executor, blocking_generation_work)
-        
-    except Exception as e:
-        logger.error(f"Executor error for job {job_id}: {e}")
-        if job_id in jobs:
-            jobs[job_id]["status"] = "failed"
-            jobs[job_id]["error"] = str(e)
-            if job_id in job_events:
-                await set_event_safe(job_id)
-
+    # Avvio non bloccante nel thread pool
+    await loop.run_in_executor(_executor, blocking_generation)
