@@ -78,7 +78,7 @@ def generate_enhanced_story(theme: str, duration: int, description: Optional[str
     if custom_waypoints:
         payload["custom_waypoints"] = custom_waypoints
 
-    r = requests.post(f"{API_URL}/generate/story", json=payload, timeout=30)
+    r = requests.post(f"{API_URL}/generate/story", json=payload, timeout=30000)
     if r.status_code != 200:
         return f"❌ Error starting generation: {r.text}", "", "", "", ""
     job = r.json(); job_id = job.get("job_id")
@@ -117,7 +117,7 @@ Features:\n- " + "\n- ".join(lines) + f"\n\nStatus: PROCESSING\nStep: {step_num}
     except Exception:
         pass
 
-    res = requests.get(f"{API_URL}/generate/{job_id}/result", timeout=30)
+    res = requests.get(f"{API_URL}/generate/{job_id}/result", timeout=30000)
     if res.status_code != 200:
         elapsed = str(timedelta(seconds=int(time.time()-start_time)))[2:7]
         return status_text+f"\n❌ Error getting results after {elapsed}", "", "", "", ""
