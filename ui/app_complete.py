@@ -412,7 +412,7 @@ Step: {step_num}/{total_steps} - {current_step}
 # --- Gradio UI with Complete Controls ---
 
 with gr.Blocks(title="Sleep Stories AI - Complete v2.4", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌙 Sleep Stories AI - Complete v2.4 (FULL GRADIO STREAMING)")
+    gr.Markdown("# 🌙 Sleep Stories AI - Complete v2.4 (FIXED GRADIO STREAMING)")
     
     # Connection status and job management
     with gr.Row():
@@ -553,7 +553,7 @@ with gr.Blocks(title="Sleep Stories AI - Complete v2.4", theme=gr.themes.Soft())
     refresh_r.click(fn=lambda: gr.update(choices=fetch_ollama_models()), inputs=None, outputs=[reasoner_dd])
     refresh_p.click(fn=lambda: gr.update(choices=fetch_ollama_models()), inputs=None, outputs=[polisher_dd])
     
-    # Main generation with all parameters
+    # Main generation with all parameters - FIXED CONCURRENCY
     generate_btn.click(
         fn=start_job_and_stream,
         inputs=[
@@ -572,14 +572,18 @@ with gr.Blocks(title="Sleep Stories AI - Complete v2.4", theme=gr.themes.Soft())
             # TTS
             tts_pause_min, tts_pause_max, tts_breathe_frequency
         ],
-        outputs=[status, story_output, metrics_output, outline_output, schema_output, current_job_id]
+        outputs=[status, story_output, metrics_output, outline_output, schema_output, current_job_id],
+        concurrency_limit=1,
+        concurrency_id="gpu_generation"
     )
     
-    # Attach to existing job
+    # Attach to existing job - FIXED CONCURRENCY
     attach_btn.click(
         fn=attach_to_job_and_stream,
         inputs=[active_jobs],
-        outputs=[status, story_output, metrics_output, outline_output, schema_output, current_job_id]
+        outputs=[status, story_output, metrics_output, outline_output, schema_output, current_job_id],
+        concurrency_limit=2,
+        concurrency_id="job_attach"
     )
     
     # Clear function
@@ -589,8 +593,8 @@ with gr.Blocks(title="Sleep Stories AI - Complete v2.4", theme=gr.themes.Soft())
         outputs=[status, story_output, metrics_output, outline_output, schema_output, current_job_id]
     )
 
-# Enable Gradio queue for streaming support
-demo.queue(concurrency_count=3)
+# Enable Gradio queue with FIXED settings for v4.44+
+demo.queue(default_concurrency_limit=None)
 
 if __name__ == "__main__":
     demo.launch(
@@ -598,5 +602,6 @@ if __name__ == "__main__":
         server_port=7860, 
         share=False, 
         show_error=True,
-        debug=True
+        debug=True,
+        max_threads=40
     )
