@@ -1,0 +1,75 @@
+# Debug version of docker-compose for troubleshooting
+# Use this when the main compose has issues
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sleep-stories-ollama-debug
+    ports:
+      - "11434:11434"
+    volumes:
+      - sleepai_volume:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KEEP_ALIVE=1m
+      - OLLAMA_DEBUG=1
+    # Simplified GPU config for troubleshooting
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: "no"  # Don't restart automatically for debugging
+    networks:
+      - sleep-stories-net
+    # No health check for debugging
+    command: >
+      sh -c "echo 'Starting Ollama in debug mode...' &&
+             ollama serve"
+
+  backend:
+    build: ./backend
+    container_name: sleep-stories-api-debug
+    ports:
+      - "8000:8000"
+    volumes:
+      - sleepai_volume:/app/data
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - DATA_PATH=/app/data
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG  # More verbose logging
+      - OLLAMA_CONNECT_TIMEOUT=300  # 5 minute timeout
+    restart: "no"
+    networks:
+      - sleep-stories-net
+    # Start backend only after manual Ollama verification
+    profiles: ["backend"]
+
+  ui:
+    build: ./ui
+    container_name: sleep-stories-ui-debug
+    ports:
+      - "7860:7860"
+    volumes:
+      - sleepai_volume:/app/data
+    environment:
+      - API_URL=http://backend:8000/api
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - GRADIO_SERVER_PORT=7860
+    restart: "no"
+    networks:
+      - sleep-stories-net
+    # Start UI only after backend is confirmed working
+    profiles: ["ui"]
+
+networks:
+  sleep-stories-net:
+    driver: bridge
+
+volumes:
+  sleepai_volume:
+    external: true
