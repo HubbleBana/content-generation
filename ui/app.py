@@ -3,14 +3,14 @@ import requests
 import json
 import time
 import os
-from typing import Optional, Generator, Dict, Any, List
+from typing import Generator, Dict, Any, List
 from datetime import timedelta
 
 API_URL = os.getenv("API_URL", "http://backend:8000/api")
 
 # --- HTTP helpers ---
 
-def fetch_json(url, timeout=15):
+def fetch_json(url, timeout=20):
     try:
         r = requests.get(url, timeout=timeout)
         if r.status_code == 200:
@@ -53,14 +53,12 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         yield (f"❌ Start error: {r.status_code}\n{r.text[:200]}", "", "", "", "")
         return
     job_id = r.json().get("job_id")
-    last_status = ""
-    backoff = 2
+    last_status = ""; backoff = 2
     while True:
-        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=15)
+        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=20)
         if not st:
             yield (last_status + "\n⚠️ status unavailable", "", "", "", job_id)
-            time.sleep(backoff)
-            backoff = min(5, backoff + 1)
+            time.sleep(backoff); backoff = min(6, backoff + 1)
             continue
         progress = st.get("progress", 0)
         step = st.get("current_step", "Processing...")
@@ -68,7 +66,7 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         total_steps = st.get("total_steps", 8)
         elapsed = str(timedelta(seconds=int(time.time()-start_time)))[2:7]
         bar = f"[{'🟩'*int(progress/2.5)}{'⬜'*(40-int(progress/2.5))}] {progress:.1f}%"
-        status_text = f"""🚀 Sleep Stories AI — v3.6
+        status_text = f"""🚀 Sleep Stories AI — v3.7
 Job: {job_id}\nElapsed: {elapsed}
 Step {step_num}/{total_steps}: {step}
 {bar}
@@ -81,8 +79,7 @@ Step {step_num}/{total_steps}: {step}
         if st.get("status") == "failed":
             yield (status_text+"\n❌ FAILED", "", "", "", job_id)
             return
-        time.sleep(backoff)
-        backoff = min(5, backoff + 1)
+        time.sleep(backoff); backoff = min(6, backoff + 1)
     res = fetch_json(f"{API_URL}/generate/{job_id}/result", timeout=30)
     if not res:
         yield (last_status+"\n❌ result unavailable", "", "", "", job_id)
@@ -100,15 +97,12 @@ def attach_and_stream(label: str) -> Generator[tuple, None, None]:
     if not job_id:
         yield ("❌ Select a job to attach", "", "", "", "")
         return
-    start_time = time.time()
-    last_status = ""
-    backoff = 2
+    start_time = time.time(); last_status = ""; backoff = 2
     while True:
-        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=15)
+        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=20)
         if not st:
             yield (last_status + "\n⚠️ status unavailable", "", "", "", job_id)
-            time.sleep(backoff)
-            backoff = min(5, backoff + 1)
+            time.sleep(backoff); backoff = min(6, backoff + 1)
             continue
         progress = st.get("progress", 0)
         step = st.get("current_step", "Processing...")
@@ -129,8 +123,7 @@ Step {step_num}/{total_steps}: {step}
         if st.get("status") == "failed":
             yield (status_text+"\n❌ FAILED", "", "", "", job_id)
             return
-        time.sleep(backoff)
-        backoff = min(5, backoff + 1)
+        time.sleep(backoff); backoff = min(6, backoff + 1)
     res = fetch_json(f"{API_URL}/generate/{job_id}/result", timeout=30)
     if not res:
         yield (last_status+"\n❌ result unavailable", "", "", "", job_id)
@@ -142,8 +135,8 @@ Step {step_num}/{total_steps}: {step}
 
 # --- UI ---
 
-with gr.Blocks(title="Sleep Stories AI — v3.6", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌙 Sleep Stories AI — v3.6")
+with gr.Blocks(title="Sleep Stories AI — v3.7", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🌙 Sleep Stories AI — v3.7")
 
     with gr.Row():
         with gr.Column(scale=1, min_width=460):
@@ -210,22 +203,22 @@ with gr.Blocks(title="Sleep Stories AI — v3.6", theme=gr.themes.Soft()) as dem
 
     # Loaders
     def on_load():
-        jobs = fetch_json(f"{API_URL}/jobs", timeout=15) or {"jobs": []}
+        jobs = fetch_json(f"{API_URL}/jobs", timeout=20) or {"jobs": []}
         job_labels = build_job_labels(jobs)
-        models = fetch_json(f"{API_URL}/models/ollama", timeout=15) or []
+        models = fetch_json(f"{API_URL}/models/ollama", timeout=20) or []
         names = [m.get('name','') for m in models if isinstance(m, dict)]
         return [gr.update(choices=job_labels, value=None), gr.update(choices=names, value=None), gr.update(choices=names, value=None), gr.update(choices=names, value=None)]
 
     demo.load(on_load, inputs=None, outputs=[active_jobs, gen, rsn, pol])
 
     refresh_jobs.click(
-        fn=lambda: [gr.update(choices=build_job_labels(fetch_json(f"{API_URL}/jobs", 15) or {"jobs": []}), value=None)],
+        fn=lambda: [gr.update(choices=build_job_labels(fetch_json(f"{API_URL}/jobs", 20) or {"jobs": []}), value=None)],
         inputs=None,
         outputs=[active_jobs]
     )
 
     refresh_models.click(
-        fn=lambda: [gr.update(choices=[m.get('name','') for m in (fetch_json(f"{API_URL}/models/ollama", 15) or []) if isinstance(m, dict)], value=None)],
+        fn=lambda: [gr.update(choices=[m.get('name','') for m in (fetch_json(f"{API_URL}/models/ollama", 20) or []) if isinstance(m, dict)], value=None)],
         inputs=None,
         outputs=[gen]
     )
@@ -278,11 +271,15 @@ with gr.Blocks(title="Sleep Stories AI — v3.6", theme=gr.themes.Soft()) as dem
         for update in attach_and_stream(label):
             yield update
 
+    # Queue enabled and concurrency ids set
+    demo.queue()
+
     attach_btn.click(
         fn=run_attach,
         inputs=[active_jobs],
         outputs=[status, story_out, metrics_out, outline_out, schema_out],
-        concurrency_limit=2
+        concurrency_limit=2,
+        concurrency_id="job_attach"
     )
 
     run.click(
@@ -294,7 +291,8 @@ with gr.Blocks(title="Sleep Stories AI — v3.6", theme=gr.themes.Soft()) as dem
                 destination_arc, arrival_start, settlement_beats, closure_required, archetype,
                 temp, coach_on],
         outputs=[status, story_out, metrics_out, outline_out, schema_out],
-        concurrency_limit=1
+        concurrency_limit=1,
+        concurrency_id="gpu_generation"
     )
 
     clear_btn.click(
