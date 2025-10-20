@@ -1,4 +1,5 @@
-﻿FROM python:3.11-slim
+﻿# backend/Dockerfile — FIX stabile per SSE e stato in-memory
+FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y curl git && rm -rf /var/lib/apt/lists/*
 
@@ -14,4 +15,9 @@ RUN mkdir -p /app/data/outputs /app/data/logs /app/data/templates
 
 EXPOSE 8000
 
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "-b", "0.0.0.0:8000", "app.main:app"]
+# 🔧 Avvio con uvicorn single-process per evitare desincronizzazioni tra worker
+#   - http keep-alive e timeouts alzati per stream SSE lunghi
+#   - no-reload in produzione
+CMD ["python", "-m", "uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", "--timeout-keep-alive", "120", "--limit-concurrency", "100"]
