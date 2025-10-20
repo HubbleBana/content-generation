@@ -35,7 +35,7 @@ def load_ollama_models() -> List[str]:
     data = get_json("/models/ollama", timeout=6) or []
     return sorted([m.get("name") for m in data if isinstance(m, dict) and m.get("name")])
 
-def load_presets() -> Dict[str, Dict[str, str]]:
+def load_presets() -> Dict[str, Dict[str, Any]]:
     data = get_json("/models/presets", timeout=6) or {}
     return data.get("presets", {})
 
@@ -54,7 +54,7 @@ def parse_job_id(label: str) -> str:
     return (label or "").split("|", 1)[0]
 
 # ----------------------
-# Payload builder — completo con tutti i parametri supportati dal backend
+# Payload builder — flat, aligned to backend
 # ----------------------
 def build_payload(theme, description, duration,
                   use_reasoner, use_polish,
@@ -65,7 +65,7 @@ def build_payload(theme, description, duration,
                   beats, words_per_beat, tolerance,
                   taper_start_pct, taper_reduction,
                   custom_waypoints_text,
-                  # TTS Advanced
+                  # TTS Advanced (kept in UI, not sent unless mapped)
                   tts_pause_min, tts_pause_max, tts_breathe_frequency,
                   # Spatial/Journey (Embodiment)
                   movement_verbs_required, transition_tokens_required,
@@ -73,12 +73,12 @@ def build_payload(theme, description, duration,
                   # Destination Architecture
                   destination_promise_beat, arrival_signals_start, settlement_beats,
                   closure_required, destination_archetype,
-                  # Spatial Coach Agent
+                  # Spatial Coach Agent (UI only)
                   enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
-                  # Quality / Planning
+                  # Quality / Planning (UI only)
                   opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
                   beat_planning_enabled, beat_length_tolerance,
-                  # Performance / VRAM / Retry
+                  # Performance / VRAM / Retry (UI only)
                   max_concurrent_models, model_unload_delay, max_retries,
                   retry_delay, fallback_model
                   ) -> Dict[str, Any]:
@@ -88,7 +88,7 @@ def build_payload(theme, description, duration,
     if reasoner_model:  models["reasoner"]  = reasoner_model
     if polisher_model:  models["polisher"]  = polisher_model
 
-    # Parse custom waypoints (una per riga)
+    # Parse custom waypoints (one per line)
     custom_waypoints = None
     if custom_waypoints_text and custom_waypoints_text.strip():
         custom_waypoints = [w.strip() for w in custom_waypoints_text.splitlines() if w.strip()]
@@ -105,81 +105,45 @@ def build_payload(theme, description, duration,
         "tts_markers": bool(tts_markers),
         "strict_schema": bool(strict_schema),
 
-        # opzionali
-        "sensory_rotation": bool(sensory_rotation) if sensory_rotation is not None else None,
-        "sleep_taper": bool(sleep_taper) if sleep_taper is not None else None,
+        # Rotation/taper
         "rotation": bool(rotation) if rotation is not None else None,
-
-        # Advanced tweakables
-        "temps": {
-            "generator": float(temp_gen),
-            "reasoner": float(temp_rsn),
-            "polisher": float(temp_pol),
-        },
-        "beats": int(beats) if beats else None,
-        "words_per_beat": int(words_per_beat) if words_per_beat else None,
-        "tolerance": float(tolerance) if tolerance else None,
         "taper": {
             "start_pct": float(taper_start_pct),
             "reduction": float(taper_reduction),
         },
 
-        # Waypoints opzionali
-        "custom_waypoints": custom_waypoints
-    }
+        # Temps (generator/reasoner/polisher)
+        "temps": {
+            "generator": float(temp_gen),
+            "reasoner": float(temp_rsn),
+            "polisher": float(temp_pol),
+        },
 
-    # TTS advanced block
-    payload["tts_advanced"] = {
-        "pause_min": float(tts_pause_min),
-        "pause_max": float(tts_pause_max),
-        "breathe_frequency": int(tts_breathe_frequency)
-    }
+        # Structure
+        "beats": int(beats) if beats else None,
+        "words_per_beat": int(words_per_beat) if words_per_beat else None,
+        "tolerance": float(tolerance) if tolerance else None,
 
-    # Journey / Embodiment block
-    payload["journey_settings"] = {
+        # Waypoints
+        "custom_waypoints": custom_waypoints,
+
+        # Journey / Embodiment (flat, as backend expects)
         "movement_verbs_required": int(movement_verbs_required),
         "transition_tokens_required": int(transition_tokens_required),
         "sensory_coupling": int(sensory_coupling),
         "downshift_required": bool(downshift_required),
-        "pov_enforce_second_person": bool(pov_enforce_second_person)
-    }
+        "pov_enforce_second_person": bool(pov_enforce_second_person),
 
-    # Destination Architecture block
-    payload["destination_settings"] = {
-        "promise_beat": int(destination_promise_beat),
-        "arrival_signals_start": float(arrival_signals_start),
-        "settlement_beats": int(settlement_beats),
+        # Destination core flag
         "closure_required": bool(closure_required),
-        "archetype": destination_archetype
+
+        # TTS pacing optimization toggle (maps to backend tts_optimized)
+        "tts_optimized": bool(tts_markers),
     }
 
-    # Spatial Coach Agent block
-    payload["spatial_coach_settings"] = {
-        "enabled": bool(enable_spatial_coach),
-        "model": spatial_coach_model or None,
-        "temperature": float(spatial_coach_temperature),
-        "max_tokens": int(spatial_coach_max_tokens)
-    }
-
-    # Quality / Planning block
-    payload["quality_settings"] = {
-        "opener_penalty_threshold": int(opener_penalty_threshold),
-        "transition_penalty_weight": float(transition_penalty_weight),
-        "redundancy_penalty_weight": float(redundancy_penalty_weight),
-        "beat_planning_enabled": bool(beat_planning_enabled),
-        "beat_length_tolerance": float(beat_length_tolerance)
-    }
-
-    # Performance / VRAM / Retry block
-    payload["performance_settings"] = {
-        "max_concurrent_models": int(max_concurrent_models),
-        "model_unload_delay": float(model_unload_delay),
-        "max_retries": int(max_retries),
-        "retry_delay": float(retry_delay),
-        "fallback_model": fallback_model
-    }
-
-    return payload
+    # Remove keys with None to keep payload clean
+    clean_payload = {k: v for k, v in payload.items() if v is not None}
+    return clean_payload
 
 # ----------------------
 # Status renderer
@@ -191,6 +155,44 @@ def progress_bar(pct, color="#3b82f6"):
         <div style='height:14px;width:{pct}%;background:{color};transition:width 0.25s ease'></div>
     </div>
     """
+
+def render_params_html(params: Dict[str, Any]) -> str:
+    if not params:
+        return ""
+    keys = [
+        ("POV 2nd person", 'pov_enforce_second_person'),
+        ("Movement verbs", 'movement_verbs_required'),
+        ("Transitions", 'transition_tokens_required'),
+        ("Sensory coupling", 'sensory_coupling'),
+        ("Downshift req.", 'downshift_required'),
+        ("Beats", 'beats_target'),
+        ("Words/beat", 'words_per_beat'),
+        ("Taper start", 'taper_start_pct'),
+        ("Taper reduction", 'taper_reduction'),
+        ("Rotation", 'sensory_rotation_enabled'),
+        ("Temp gen", ('temps','generator')),
+        ("Temp rsn", ('temps','reasoner')),
+        ("Temp pol", ('temps','polisher')),
+    ]
+    rows = []
+    for label, key in keys:
+        val = None
+        if isinstance(key, tuple):
+            top, sub = key
+            if isinstance(params.get(top), dict):
+                val = params.get(top).get(sub)
+        else:
+            val = params.get(key)
+        if val is not None:
+            rows.append(f"<div style='display:flex;justify-content:space-between'><span>{label}</span><b>{val}</b></div>")
+    if not rows:
+        return ""
+    return """
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:12px">
+      <div style="font-weight:700;margin-bottom:6px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:4px">⚙️ Parameters</div>
+      {rows}
+    </div>
+    """.replace("{rows}", "\n".join(rows))
 
 def render_status_html(ev: Dict[str, Any]) -> str:
     status = ev.get("status", "processing")
@@ -209,7 +211,7 @@ def render_status_html(ev: Dict[str, Any]) -> str:
     temps = ev.get("temps", {}) or {}
     quality = ev.get("quality", {}) or {}
     timing = ev.get("timing", {}) or {}
-    enh = ev.get("enhanced_features", {}) or {}
+    params = ev.get("generation_params", {}) or {}
 
     if status == "completed":
         color = "#16a34a"; icon = "✅"
@@ -223,8 +225,6 @@ def render_status_html(ev: Dict[str, Any]) -> str:
     pol = models.get("polisher", "") or "—"
     tgen = temps.get("generator"); trsn = temps.get("reasoner"); tpol = temps.get("polisher")
 
-    sens_rot = quality.get("sensory_rotation")
-    taper = quality.get("sleep_taper", {}) or {}
     elapsed = int((timing or {}).get("elapsed_sec") or 0)
     eta = (timing or {}).get("eta_sec")
     elapsed_str = f"{elapsed//60}m {elapsed%60}s" if elapsed else "0s"
@@ -239,30 +239,30 @@ def render_status_html(ev: Dict[str, Any]) -> str:
                 <span style="font-weight:700;color:#374151">Overall Beat Progress</span>
                 <span style="background:#22c55e;color:white;padding:4px 8px;border-radius:12px;font-weight:700">{bi}/{bt}</span>
             </div>
-            {progress_bar(beat_pct, "#22c55e")}
-            <div style="text-align:right;color:#22c55e;font-weight:600;margin-top:4px">{beat_pct:.1f}%</div>
+            {pb}
+            <div style="text-align:right;color:#22c55e;font-weight:600;margin-top:4px">{pct:.1f}%</div>
         </div>
-        """
+        """.replace("{pb}", progress_bar(beat_pct, "#22c55e")).replace("{pct}", f"{beat_pct}").replace("{bi}", str(bi)).replace("{bt}", str(bt))
         if bstage:
             beat_section += f"""
             <div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                    <span style="font-weight:700;color:#374151">Current Stage: {bstage.upper()}</span>
+                    <span style="font-weight:700;color:#374151">Current Stage: {bstage_upper}</span>
                     <span style="background:#3b82f6;color:white;padding:4px 8px;border-radius:12px;font-weight:700">{bstage_prog}%</span>
                 </div>
-                {progress_bar(bstage_prog, "#3b82f6")}
+                {pb2}
             </div>
-            """
+            """.replace("{bstage_upper}", bstage.upper()).replace("{bstage_prog}", str(bstage_prog)).replace("{pb2}", progress_bar(bstage_prog, "#3b82f6"))
 
     html = f"""
     <div style="border:2px solid {color};border-radius:16px;padding:20px;margin:8px 0;background:linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)">
         <div style="background:white;border:2px solid {color};border-radius:12px;padding:16px;margin-bottom:16px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <div style="font-size:20px;font-weight:800;color:{color}">{icon} {status.upper()}</div>
+                <div style="font-size:20px;font-weight:800;color:{color}">{icon} {status_upper}</div>
                 <div style="background:{color};color:white;padding:6px 12px;border-radius:20px;font-weight:700">STEP {step_num}/{total_steps}</div>
             </div>
             <div style="font-size:16px;margin-bottom:10px;color:#111827;font-weight:600">{step}</div>
-            {progress_bar(progress, color)}
+            {pb_main}
             <div style="text-align:right;color:{color};font-weight:700;margin-top:6px">{progress:.1f}%</div>
         </div>
 
@@ -275,9 +275,9 @@ def render_status_html(ev: Dict[str, Any]) -> str:
             <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px">
                 <div style="font-weight:700;margin-bottom:8px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:4px">🤖 Models & Temps</div>
                 <div style="font-size:13px;line-height:1.5">
-                    <div>Gen: <span style="color:#111827;font-weight:600">{gen}</span> {f'<span style="color:#3b82f6">({tgen})</span>' if tgen is not None else ''}</div>
-                    <div>Rsn: <span style="color:#111827;font-weight:600">{rsn}</span> {f'<span style="color:#3b82f6">({trsn})</span>' if trsn is not None else ''}</div>
-                    <div>Pol: <span style="color:#111827;font-weight:600">{pol}</span> {f'<span style="color:#3b82f6">({tpol})</span>' if tpol is not None else ''}</div>
+                    <div>Gen: <span style="color:#111827;font-weight:600">{gen}</span> {gen_t}</div>
+                    <div>Rsn: <span style="color:#111827;font-weight:600">{rsn}</span> {rsn_t}</div>
+                    <div>Pol: <span style="color:#111827;font-weight:600">{pol}</span> {pol_t}</div>
                 </div>
             </div>
             <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px">
@@ -288,8 +288,16 @@ def render_status_html(ev: Dict[str, Any]) -> str:
                 </div>
             </div>
         </div>
+        {params_box}
     </div>
     """
+    html = html.replace("{status_upper}", status.upper()) \
+               .replace("{pb_main}", progress_bar(progress, color)) \
+               .replace("{beat_section}", beat_section) \
+               .replace("{gen_t}", f"<span style='color:#3b82f6'>({tgen})</span>" if tgen is not None else "") \
+               .replace("{rsn_t}", f"<span style='color:#3b82f6'>({trsn})</span>" if trsn is not None else "") \
+               .replace("{pol_t}", f"<span style='color:#3b82f6'>({tpol})</span>" if tpol is not None else "") \
+               .replace("{params_box}", render_params_html(params))
     return html
 
 # ----------------------
@@ -336,10 +344,9 @@ def stream_sse(job_id: str):
                             return
 
                     elif line.startswith("event: heartbeat"):
-                        # keep alive
                         continue
 
-            break  # stream ended unexpectedly
+            break
 
         except requests.exceptions.RequestException as e:
             retry += 1
@@ -388,7 +395,7 @@ def start_and_stream(theme, description, duration,
         beats, words_per_beat, tolerance,
         taper_start_pct, taper_reduction,
         custom_waypoints_text,
-        # TTS adv
+        # TTS adv (not sent except tts_optimized)
         tts_pause_min, tts_pause_max, tts_breathe_frequency,
         # Journey
         movement_verbs_required, transition_tokens_required,
@@ -396,12 +403,12 @@ def start_and_stream(theme, description, duration,
         # Destination
         destination_promise_beat, arrival_signals_start, settlement_beats,
         closure_required, destination_archetype,
-        # Spatial Coach
+        # Spatial Coach (UI only)
         enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
-        # Quality
+        # Quality (UI only)
         opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
         beat_planning_enabled, beat_length_tolerance,
-        # Performance
+        # Performance (UI only)
         max_concurrent_models, model_unload_delay, max_retries,
         retry_delay, fallback_model
     )
@@ -465,9 +472,18 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
 
             def on_preset_change(preset_key, presets):
                 if not preset_key or not presets or preset_key not in presets:
-                    return gr.update(), gr.update(), gr.update(), gr.update()
+                    return [gr.update()]*8
                 p = presets[preset_key]
-                return gr.update(value=p.get("generator")), gr.update(value=p.get("reasoner")), gr.update(value=p.get("polisher")), gr.update(value=p.get("rotation", True))
+                return [
+                    gr.update(value=p.get("generator")),
+                    gr.update(value=p.get("reasoner")),
+                    gr.update(value=p.get("polisher")),
+                    gr.update(value=p.get("rotation", True)),
+                    gr.update(value=p.get("beats", 0)),
+                    gr.update(value=p.get("words_per_beat", 0)),
+                    gr.update(value=p.get("temps", {}).get("generator", 0.7)),
+                    gr.update(value=p.get("temps", {}).get("polisher", 0.4)),
+                ]
 
             preset_dd.change(on_preset_change, inputs=[preset_dd, presets_state], outputs=[gen_dd, rsn_dd, pol_dd, ])
 
