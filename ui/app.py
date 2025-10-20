@@ -3,7 +3,7 @@ import requests
 import json
 import time
 import os
-from typing import Optional, Generator, Dict, Any, List, Tuple
+from typing import Optional, Generator, Dict, Any, List
 from datetime import timedelta
 
 API_URL = os.getenv("API_URL", "http://backend:8000/api")
@@ -19,35 +19,40 @@ def fetch_json(url, timeout=8):
         return None
     return None
 
-# --- Dropdown builders ---
+# Always return list of strings for Dropdown to avoid [object Object]
 
-def build_job_choices(jobs_payload: Dict[str, Any]) -> List[Tuple[str, str]]:
+def build_job_labels(jobs_payload: Dict[str, Any]) -> List[str]:
     jobs = (jobs_payload or {}).get('jobs', [])
-    choices: List[Tuple[str, str]] = []
+    labels: List[str] = []
     for j in jobs:
         if j.get('status') in ['started','processing']:
-            jid = j.get('job_id','')
-            theme = j.get('theme','unknown')
-            prog = j.get('progress',0)
-            label = f"{jid[:8]} — {theme[:24]}… ({prog}%)"
-            choices.append((label, jid))
-    return choices
+            jid = str(j.get('job_id',''))
+            theme = str(j.get('theme','unknown'))
+            prog = int(j.get('progress',0))
+            labels.append(f"{jid}|{theme[:30]}|{prog}")
+    return labels
+
+# Parse label back to id
+
+def parse_job_id(label: str) -> str:
+    try:
+        return label.split('|', 1)[0]
+    except Exception:
+        return label
 
 # --- Streaming/polling generator ---
 
 def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
     start_time = time.time()
-    # start job
     try:
         r = requests.post(f"{API_URL}/generate/story", json=payload, timeout=30)
     except Exception as e:
         yield (f"❌ Start error: {e}", "", "", "", "")
         return
     if r.status_code != 200:
-        msg = f"❌ Start error: {r.status_code}\n{r.text[:200]}"
-        yield (msg, "", "", "", "")
+        yield (f"❌ Start error: {r.status_code}\n{r.text[:200]}", "", "", "", "")
         return
-    job = r.json(); job_id = job.get("job_id")
+    job_id = r.json().get("job_id")
     last_status = ""
     while True:
         st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=10)
@@ -61,15 +66,8 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         total_steps = st.get("total_steps", 8)
         elapsed = str(timedelta(seconds=int(time.time()-start_time)))[2:7]
         bar = f"[{'🟩'*int(progress/2.5)}{'⬜'*(40-int(progress/2.5))}] {progress:.1f}%"
-        features = st.get("enhanced_features", {})
-        status_text = f"""🚀 Sleep Stories AI — v3.2
+        status_text = f"""🚀 Sleep Stories AI — v3.3
 Job: {job_id}\nElapsed: {elapsed}
-
-Features:
-- Multi-Model: {features.get('models',{})}
-- Reasoner: {features.get('use_reasoner', True)} | Polisher: {features.get('use_polish', True)}
-- TTS: {features.get('tts_markers', False)} | Schema: {features.get('strict_schema', False)}
-
 Step {step_num}/{total_steps}: {step}
 {bar}
 """
@@ -87,23 +85,15 @@ Step {step_num}/{total_steps}: {step}
         yield (last_status+"\n❌ result unavailable", "", "", "", job_id)
         return
     story = res.get('story_text','')
-    metrics = res.get('metrics',{})
-    coherence = res.get('coherence_stats',{})
-    schema = res.get('beats_schema',{})
-    metrics_text = json.dumps(metrics, indent=2)
-    coherence_text = json.dumps(coherence, indent=2)
-    schema_text = json.dumps(schema, indent=2) if schema else "(no schema)"
+    metrics_text = json.dumps(res.get('metrics',{}), indent=2)
+    coherence_text = json.dumps(res.get('coherence_stats',{}), indent=2)
+    schema_text = json.dumps(res.get('beats_schema',{}), indent=2) if res.get('beats_schema') else "(no schema)"
     yield (last_status+"\n✅ COMPLETED", story, metrics_text+"\n\n---\nCoherence:\n"+coherence_text, "", schema_text)
 
 # --- Attach/resume generator ---
 
-def attach_and_stream(job_choice) -> Generator[tuple, None, None]:
-    # job_choice can be ('label', 'id') or 'id'
-    job_id = None
-    if isinstance(job_choice, (list, tuple)) and len(job_choice) == 2:
-        job_id = job_choice[1]
-    elif isinstance(job_choice, str):
-        job_id = job_choice
+def attach_and_stream(label: str) -> Generator[tuple, None, None]:
+    job_id = parse_job_id(label)
     if not job_id:
         yield ("❌ Select a job to attach", "", "", "", "")
         return
@@ -146,17 +136,17 @@ Step {step_num}/{total_steps}: {step}
 
 # --- UI ---
 
-with gr.Blocks(title="Sleep Stories AI — v3.2", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌙 Sleep Stories AI — v3.2")
+with gr.Blocks(title="Sleep Stories AI — v3.3", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🌙 Sleep Stories AI — v3.3")
 
     with gr.Row():
-        # LEFT: parameters
         with gr.Column(scale=1, min_width=460):
             gr.Markdown("### 🎨 Base")
             theme = gr.Textbox(label="Theme / Setting", value="Moonlit forest path")
             description = gr.Textbox(label="Extra details (optional)", lines=3)
             duration = gr.Slider(10, 120, value=45, step=5, label="Duration (minutes)")
-            gr.Markdown("### 🤖 Models (auto from Ollama; override allowed)")
+
+            gr.Markdown("### 🤖 Models")
             use_custom = gr.Checkbox(label="Override models manually", value=False)
             gen = gr.Dropdown(choices=[], label="Generator", allow_custom_value=True)
             rsn = gr.Dropdown(choices=[], label="Reasoner", allow_custom_value=True)
@@ -186,22 +176,14 @@ with gr.Blocks(title="Sleep Stories AI — v3.2", theme=gr.themes.Soft()) as dem
             archetype = gr.Dropdown(label="Destination archetype", choices=["safe_shelter","peaceful_vista","restorative_water","sacred_space"], value="safe_shelter")
 
             with gr.Accordion("🔧 Advanced (examples included)", open=False):
-                gr.Markdown("""
-Examples & Tips:
-- Movement: "you walk", "you cross", "you reach".
-- Transition: "ahead", "beyond".
-- Sensory coupling: corporeal + environmental per beat.
-- Destination arc: promise → progress → approach → arrival & settlement → closure.
-- Spatial Coach: per-beat micro-brief to stabilize long journeys.
-""")
+                gr.Markdown("Examples & Tips: movement, transition, sensory coupling, destination arc, Spatial Coach.")
                 temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Model temperature")
                 coach_on = gr.Checkbox(label="Enable Spatial Coach (DeepSeek)", value=False)
 
-        # RIGHT: session controls & outputs
         with gr.Column(scale=2, min_width=640):
             gr.Markdown("### 🔗 Active Session")
             with gr.Row():
-                active_jobs = gr.Dropdown(label="Active Jobs (Resume)", choices=[], allow_custom_value=True)
+                active_jobs = gr.Dropdown(label="Active Jobs (Resume)", choices=[], allow_custom_value=False)
                 refresh_jobs = gr.Button("↻", size="sm")
                 attach_btn = gr.Button("🔗 Attach", variant="secondary")
             status = gr.Textbox(label="Status", lines=10, interactive=False)
@@ -223,18 +205,16 @@ Examples & Tips:
 
     # Loaders
     def on_load():
-        # Jobs
         jobs = fetch_json(f"{API_URL}/jobs", timeout=5) or {"jobs": []}
-        job_choices = build_job_choices(jobs)
-        # Models
+        job_labels = build_job_labels(jobs)
         models = fetch_json(f"{API_URL}/models/ollama", timeout=8) or []
         names = [m.get('name','') for m in models if isinstance(m, dict)]
-        return [gr.update(choices=job_choices), gr.update(choices=names), gr.update(choices=names), gr.update(choices=names)]
+        return [gr.update(choices=job_labels), gr.update(choices=names), gr.update(choices=names), gr.update(choices=names)]
 
     demo.load(on_load, inputs=None, outputs=[active_jobs, gen, rsn, pol])
 
     refresh_jobs.click(
-        fn=lambda: [gr.update(choices=build_job_choices(fetch_json(f"{API_URL}/jobs", 5) or {"jobs": []}))],
+        fn=lambda: [gr.update(choices=build_job_labels(fetch_json(f"{API_URL}/jobs", 5) or {"jobs": []}))],
         inputs=None,
         outputs=[active_jobs]
     )
@@ -289,8 +269,8 @@ Examples & Tips:
         for update in start_and_stream(payload):
             yield update
 
-    def run_attach(sel):
-        for update in attach_and_stream(sel):
+    def run_attach(label):
+        for update in attach_and_stream(label):
             yield update
 
     attach_btn.click(
