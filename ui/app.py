@@ -3,7 +3,7 @@ import requests
 import json
 import time
 import os
-from typing import Optional, Generator, Dict, Any
+from typing import Optional, Generator, Dict, Any, List, Tuple
 from datetime import timedelta
 
 API_URL = os.getenv("API_URL", "http://backend:8000/api")
@@ -19,21 +19,32 @@ def fetch_json(url, timeout=8):
         return None
     return None
 
-def post_json(url, payload, timeout=30):
-    try:
-        r = requests.post(url, json=payload, timeout=timeout)
-        return r
-    except Exception:
-        return None
+# --- Dropdown builders ---
+
+def build_job_choices(jobs_payload: Dict[str, Any]) -> List[Tuple[str, str]]:
+    jobs = (jobs_payload or {}).get('jobs', [])
+    choices: List[Tuple[str, str]] = []
+    for j in jobs:
+        if j.get('status') in ['started','processing']:
+            jid = j.get('job_id','')
+            theme = j.get('theme','unknown')
+            prog = j.get('progress',0)
+            label = f"{jid[:8]} — {theme[:24]}… ({prog}%)"
+            choices.append((label, jid))
+    return choices
 
 # --- Streaming/polling generator ---
 
 def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
     start_time = time.time()
     # start job
-    r = post_json(f"{API_URL}/generate/story", payload, timeout=30)
-    if not r or r.status_code != 200:
-        msg = f"❌ Start error: {(r.status_code if r else 'no response')}\n{(r.text[:200] if r else '')}"
+    try:
+        r = requests.post(f"{API_URL}/generate/story", json=payload, timeout=30)
+    except Exception as e:
+        yield (f"❌ Start error: {e}", "", "", "", "")
+        return
+    if r.status_code != 200:
+        msg = f"❌ Start error: {r.status_code}\n{r.text[:200]}"
         yield (msg, "", "", "", "")
         return
     job = r.json(); job_id = job.get("job_id")
@@ -51,7 +62,7 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         elapsed = str(timedelta(seconds=int(time.time()-start_time)))[2:7]
         bar = f"[{'🟩'*int(progress/2.5)}{'⬜'*(40-int(progress/2.5))}] {progress:.1f}%"
         features = st.get("enhanced_features", {})
-        status_text = f"""🚀 Sleep Stories AI — v3.1
+        status_text = f"""🚀 Sleep Stories AI — v3.2
 Job: {job_id}\nElapsed: {elapsed}
 
 Features:
@@ -71,7 +82,6 @@ Step {step_num}/{total_steps}: {step}
             yield (status_text+"\n❌ FAILED", "", "", "", job_id)
             return
         time.sleep(2)
-    # result
     res = fetch_json(f"{API_URL}/generate/{job_id}/result", timeout=30)
     if not res:
         yield (last_status+"\n❌ result unavailable", "", "", "", job_id)
@@ -80,7 +90,6 @@ Step {step_num}/{total_steps}: {step}
     metrics = res.get('metrics',{})
     coherence = res.get('coherence_stats',{})
     schema = res.get('beats_schema',{})
-    # Build texts
     metrics_text = json.dumps(metrics, indent=2)
     coherence_text = json.dumps(coherence, indent=2)
     schema_text = json.dumps(schema, indent=2) if schema else "(no schema)"
@@ -88,9 +97,15 @@ Step {step_num}/{total_steps}: {step}
 
 # --- Attach/resume generator ---
 
-def attach_and_stream(job_id: str) -> Generator[tuple, None, None]:
+def attach_and_stream(job_choice) -> Generator[tuple, None, None]:
+    # job_choice can be ('label', 'id') or 'id'
+    job_id = None
+    if isinstance(job_choice, (list, tuple)) and len(job_choice) == 2:
+        job_id = job_choice[1]
+    elif isinstance(job_choice, str):
+        job_id = job_choice
     if not job_id:
-        yield ("❌ Please select a job to attach to", "", "", "", "")
+        yield ("❌ Select a job to attach", "", "", "", "")
         return
     start_time = time.time()
     last_status = ""
@@ -131,21 +146,22 @@ Step {step_num}/{total_steps}: {step}
 
 # --- UI ---
 
-with gr.Blocks(title="Sleep Stories AI — v3.1", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌙 Sleep Stories AI — v3.1")
+with gr.Blocks(title="Sleep Stories AI — v3.2", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🌙 Sleep Stories AI — v3.2")
 
     with gr.Row():
-        # LEFT: all parameters
+        # LEFT: parameters
         with gr.Column(scale=1, min_width=460):
             gr.Markdown("### 🎨 Base")
             theme = gr.Textbox(label="Theme / Setting", value="Moonlit forest path")
             description = gr.Textbox(label="Extra details (optional)", lines=3)
             duration = gr.Slider(10, 120, value=45, step=5, label="Duration (minutes)")
-            gr.Markdown("### 🤖 Models")
-            use_custom = gr.Checkbox(label="Use custom models", value=False)
-            gen = gr.Textbox(label="Generator (default: qwen3:8b)")
-            rsn = gr.Textbox(label="Reasoner (default: deepseek-r1:8b)")
-            pol = gr.Textbox(label="Polisher (default: mistral:7b)")
+            gr.Markdown("### 🤖 Models (auto from Ollama; override allowed)")
+            use_custom = gr.Checkbox(label="Override models manually", value=False)
+            gen = gr.Dropdown(choices=[], label="Generator", allow_custom_value=True)
+            rsn = gr.Dropdown(choices=[], label="Reasoner", allow_custom_value=True)
+            pol = gr.Dropdown(choices=[], label="Polisher", allow_custom_value=True)
+            refresh_models = gr.Button("↻ Refresh models", size="sm")
             use_reasoner = gr.Checkbox(label="Enable Reasoner", value=True)
             use_polisher = gr.Checkbox(label="Enable Polisher", value=True)
 
@@ -156,37 +172,37 @@ with gr.Blocks(title="Sleep Stories AI — v3.1", theme=gr.themes.Soft()) as dem
             sleep_taper = gr.Checkbox(label="Sleep taper", value=True)
 
             gr.Markdown("#### Embodied Journey (user-centric)")
-            movement_req = gr.Slider(0, 2, value=1, step=1, label="Movement verbs required per beat (e.g., 'you walk', 'you cross')")
-            transition_req = gr.Slider(0, 2, value=1, step=1, label="Transition tokens required per beat (e.g., 'ahead', 'beyond', 'you reach')")
-            sensory_coupling = gr.Slider(0, 3, value=2, step=1, label="Sensory coupling per beat (1 corporeal + 1 environmental)")
-            downshift_required = gr.Checkbox(label="Downshift required (breath/relax cue)", value=True)
+            movement_req = gr.Slider(0, 2, value=1, step=1, label="Movement verbs per beat")
+            transition_req = gr.Slider(0, 2, value=1, step=1, label="Transition tokens per beat")
+            sensory_coupling = gr.Slider(0, 3, value=2, step=1, label="Sensory coupling (corp+env)")
+            downshift_required = gr.Checkbox(label="Downshift required", value=True)
             pov_second_person = gr.Checkbox(label="Enforce 2nd person present", value=True)
 
             gr.Markdown("#### Destination Architecture")
             destination_arc = gr.Checkbox(label="Enable Destination Arc", value=True)
-            arrival_start = gr.Slider(0.5, 0.95, value=0.7, step=0.05, label="Approach signals start (fraction of story)")
+            arrival_start = gr.Slider(0.5, 0.95, value=0.7, step=0.05, label="Approach signals start")
             settlement_beats = gr.Slider(1, 4, value=2, step=1, label="Settlement beats (final)")
-            closure_required = gr.Checkbox(label="Closure required (arrival + permission to rest)", value=True)
+            closure_required = gr.Checkbox(label="Closure required", value=True)
             archetype = gr.Dropdown(label="Destination archetype", choices=["safe_shelter","peaceful_vista","restorative_water","sacred_space"], value="safe_shelter")
 
             with gr.Accordion("🔧 Advanced (examples included)", open=False):
                 gr.Markdown("""
 Examples & Tips:
-- Movement verbs: "you walk", "you cross", "you reach" → increases travel sense.
-- Transition tokens: "ahead", "beyond", "you reach" → guides approach.
-- Sensory coupling: 1 corporeal (feet/breath/shoulders) + 1 environmental (light/sound/scent).
-- Destination arc: promise (Beat 1-2) → progress markers → approach (70%+) → arrival & settlement → closure.
-- Spatial Coach: per-beat micro-brief to stabilize journeys in long stories.
+- Movement: "you walk", "you cross", "you reach".
+- Transition: "ahead", "beyond".
+- Sensory coupling: corporeal + environmental per beat.
+- Destination arc: promise → progress → approach → arrival & settlement → closure.
+- Spatial Coach: per-beat micro-brief to stabilize long journeys.
 """)
                 temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Model temperature")
                 coach_on = gr.Checkbox(label="Enable Spatial Coach (DeepSeek)", value=False)
 
-        # RIGHT: session controls on top, outputs below
+        # RIGHT: session controls & outputs
         with gr.Column(scale=2, min_width=640):
             gr.Markdown("### 🔗 Active Session")
             with gr.Row():
                 active_jobs = gr.Dropdown(label="Active Jobs (Resume)", choices=[], allow_custom_value=True)
-                refresh_jobs = gr.Button("↻ Refresh", size="sm")
+                refresh_jobs = gr.Button("↻", size="sm")
                 attach_btn = gr.Button("🔗 Attach", variant="secondary")
             status = gr.Textbox(label="Status", lines=10, interactive=False)
 
@@ -205,16 +221,29 @@ Examples & Tips:
                 run = gr.Button("Generate", variant="primary")
                 clear_btn = gr.Button("Clear")
 
-    # Data loaders
+    # Loaders
     def on_load():
-        health = fetch_json(f"{API_URL}/health/enhanced", timeout=5)
+        # Jobs
         jobs = fetch_json(f"{API_URL}/jobs", timeout=5) or {"jobs": []}
-        job_choices = [(f"{j['job_id'][:8]} - {j['theme'][:30]}...", j['job_id']) for j in jobs.get('jobs', []) if j.get('status') in ['started','processing']]
-        return [
-            gr.update(choices=job_choices)
-        ]
+        job_choices = build_job_choices(jobs)
+        # Models
+        models = fetch_json(f"{API_URL}/models/ollama", timeout=8) or []
+        names = [m.get('name','') for m in models if isinstance(m, dict)]
+        return [gr.update(choices=job_choices), gr.update(choices=names), gr.update(choices=names), gr.update(choices=names)]
 
-    demo.load(on_load, inputs=None, outputs=[active_jobs])
+    demo.load(on_load, inputs=None, outputs=[active_jobs, gen, rsn, pol])
+
+    refresh_jobs.click(
+        fn=lambda: [gr.update(choices=build_job_choices(fetch_json(f"{API_URL}/jobs", 5) or {"jobs": []}))],
+        inputs=None,
+        outputs=[active_jobs]
+    )
+
+    refresh_models.click(
+        fn=lambda: [gr.update(choices=[m.get('name','') for m in (fetch_json(f"{API_URL}/models/ollama", 8) or []) if isinstance(m, dict)])],
+        inputs=None,
+        outputs=[gen]
+    )
 
     def pack_payload(theme, description, duration,
                      use_custom, gen, rsn, pol, use_reasoner, use_polisher,
@@ -260,16 +289,9 @@ Examples & Tips:
         for update in start_and_stream(payload):
             yield update
 
-    def run_attach(job_choice):
-        job_id = job_choice[1] if isinstance(job_choice, (list, tuple)) else job_choice
-        for update in attach_and_stream(job_id):
+    def run_attach(sel):
+        for update in attach_and_stream(sel):
             yield update
-
-    refresh_jobs.click(
-        fn=lambda: [gr.update(choices=[(f"{j['job_id'][:8]} - {j['theme'][:30]}...", j['job_id']) for j in (fetch_json(f"{API_URL}/jobs", 5) or {"jobs": []}).get('jobs', []) if j.get('status') in ['started','processing']])],
-        inputs=None,
-        outputs=[active_jobs]
-    )
 
     attach_btn.click(
         fn=run_attach,
