@@ -35,7 +35,7 @@ def load_ollama_models() -> List[str]:
     data = get_json("/models/ollama", timeout=6) or []
     return sorted([m.get("name") for m in data if isinstance(m, dict) and m.get("name")])
 
-def load_presets() -> Dict[str, Dict[str, str]]:
+def load_presets() -> Dict[str, Dict[str, Any]]:
     data = get_json("/models/presets", timeout=6) or {}
     return data.get("presets", {})
 
@@ -54,7 +54,7 @@ def parse_job_id(label: str) -> str:
     return (label or "").split("|", 1)[0]
 
 # ----------------------
-# Payload builder — completo con tutti i parametri supportati dal backend
+# Payload builder — flat, aligned to backend
 # ----------------------
 def build_payload(theme, description, duration,
                   use_reasoner, use_polish,
@@ -64,14 +64,31 @@ def build_payload(theme, description, duration,
                   temp_gen, temp_rsn, temp_pol,
                   beats, words_per_beat, tolerance,
                   taper_start_pct, taper_reduction,
-                  custom_waypoints_text) -> Dict[str, Any]:
+                  custom_waypoints_text,
+                  # TTS Advanced (kept in UI, not sent unless mapped)
+                  tts_pause_min, tts_pause_max, tts_breathe_frequency,
+                  # Spatial/Journey (Embodiment)
+                  movement_verbs_required, transition_tokens_required,
+                  sensory_coupling, downshift_required, pov_enforce_second_person,
+                  # Destination Architecture
+                  destination_promise_beat, arrival_signals_start, settlement_beats,
+                  closure_required, destination_archetype,
+                  # Spatial Coach Agent (UI only)
+                  enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+                  # Quality / Planning (UI only)
+                  opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
+                  beat_planning_enabled, beat_length_tolerance,
+                  # Performance / VRAM / Retry (UI only)
+                  max_concurrent_models, model_unload_delay, max_retries,
+                  retry_delay, fallback_model
+                  ) -> Dict[str, Any]:
 
     models = {}
     if generator_model: models["generator"] = generator_model
     if reasoner_model:  models["reasoner"]  = reasoner_model
     if polisher_model:  models["polisher"]  = polisher_model
 
-    # Parse custom waypoints (una per riga)
+    # Parse custom waypoints (one per line)
     custom_waypoints = None
     if custom_waypoints_text and custom_waypoints_text.strip():
         custom_waypoints = [w.strip() for w in custom_waypoints_text.splitlines() if w.strip()]
@@ -88,30 +105,45 @@ def build_payload(theme, description, duration,
         "tts_markers": bool(tts_markers),
         "strict_schema": bool(strict_schema),
 
-        # opzionali
-        "sensory_rotation": bool(sensory_rotation) if sensory_rotation is not None else None,
-        "sleep_taper": bool(sleep_taper) if sleep_taper is not None else None,
+        # Rotation/taper
         "rotation": bool(rotation) if rotation is not None else None,
-
-        # Advanced tweakables
-        "temps": {
-            "generator": float(temp_gen),
-            "reasoner": float(temp_rsn),
-            "polisher": float(temp_pol),
-        },
-        "beats": int(beats) if beats else None,
-        "words_per_beat": int(words_per_beat) if words_per_beat else None,
-        "tolerance": float(tolerance) if tolerance else None,
         "taper": {
             "start_pct": float(taper_start_pct),
             "reduction": float(taper_reduction),
         },
 
-        # Waypoints opzionali
-        "custom_waypoints": custom_waypoints
+        # Temps (generator/reasoner/polisher)
+        "temps": {
+            "generator": float(temp_gen),
+            "reasoner": float(temp_rsn),
+            "polisher": float(temp_pol),
+        },
+
+        # Structure
+        "beats": int(beats) if beats else None,
+        "words_per_beat": int(words_per_beat) if words_per_beat else None,
+        "tolerance": float(tolerance) if tolerance else None,
+
+        # Waypoints
+        "custom_waypoints": custom_waypoints,
+
+        # Journey / Embodiment (flat, as backend expects)
+        "movement_verbs_required": int(movement_verbs_required),
+        "transition_tokens_required": int(transition_tokens_required),
+        "sensory_coupling": int(sensory_coupling),
+        "downshift_required": bool(downshift_required),
+        "pov_enforce_second_person": bool(pov_enforce_second_person),
+
+        # Destination core flag
+        "closure_required": bool(closure_required),
+
+        # TTS pacing optimization toggle (maps to backend tts_optimized)
+        "tts_optimized": bool(tts_markers),
     }
 
-    return payload
+    # Remove keys with None to keep payload clean
+    clean_payload = {k: v for k, v in payload.items() if v is not None}
+    return clean_payload
 
 # ----------------------
 # Status renderer
@@ -123,6 +155,44 @@ def progress_bar(pct, color="#3b82f6"):
         <div style='height:14px;width:{pct}%;background:{color};transition:width 0.25s ease'></div>
     </div>
     """
+
+def render_params_html(params: Dict[str, Any]) -> str:
+    if not params:
+        return ""
+    keys = [
+        ("POV 2nd person", 'pov_enforce_second_person'),
+        ("Movement verbs", 'movement_verbs_required'),
+        ("Transitions", 'transition_tokens_required'),
+        ("Sensory coupling", 'sensory_coupling'),
+        ("Downshift req.", 'downshift_required'),
+        ("Beats", 'beats_target'),
+        ("Words/beat", 'words_per_beat'),
+        ("Taper start", 'taper_start_pct'),
+        ("Taper reduction", 'taper_reduction'),
+        ("Rotation", 'sensory_rotation_enabled'),
+        ("Temp gen", ('temps','generator')),
+        ("Temp rsn", ('temps','reasoner')),
+        ("Temp pol", ('temps','polisher')),
+    ]
+    rows = []
+    for label, key in keys:
+        val = None
+        if isinstance(key, tuple):
+            top, sub = key
+            if isinstance(params.get(top), dict):
+                val = params.get(top).get(sub)
+        else:
+            val = params.get(key)
+        if val is not None:
+            rows.append(f"<div style='display:flex;justify-content:space-between'><span>{label}</span><b>{val}</b></div>")
+    if not rows:
+        return ""
+    return """
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:12px">
+      <div style="font-weight:700;margin-bottom:6px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:4px">⚙️ Parameters</div>
+      {rows}
+    </div>
+    """.replace("{rows}", "\n".join(rows))
 
 def render_status_html(ev: Dict[str, Any]) -> str:
     status = ev.get("status", "processing")
@@ -139,9 +209,8 @@ def render_status_html(ev: Dict[str, Any]) -> str:
 
     models = ev.get("models", {}) or {}
     temps = ev.get("temps", {}) or {}
-    quality = ev.get("quality", {}) or {}
     timing = ev.get("timing", {}) or {}
-    enh = ev.get("enhanced_features", {}) or {}
+    params = ev.get("generation_params", {}) or {}
 
     if status == "completed":
         color = "#16a34a"; icon = "✅"
@@ -155,8 +224,6 @@ def render_status_html(ev: Dict[str, Any]) -> str:
     pol = models.get("polisher", "") or "—"
     tgen = temps.get("generator"); trsn = temps.get("reasoner"); tpol = temps.get("polisher")
 
-    sens_rot = quality.get("sensory_rotation")
-    taper = quality.get("sleep_taper", {}) or {}
     elapsed = int((timing or {}).get("elapsed_sec") or 0)
     eta = (timing or {}).get("eta_sec")
     elapsed_str = f"{elapsed//60}m {elapsed%60}s" if elapsed else "0s"
@@ -220,6 +287,7 @@ def render_status_html(ev: Dict[str, Any]) -> str:
                 </div>
             </div>
         </div>
+        {render_params_html(params)}
     </div>
     """
     return html
@@ -268,10 +336,9 @@ def stream_sse(job_id: str):
                             return
 
                     elif line.startswith("event: heartbeat"):
-                        # keep alive
                         continue
 
-            break  # stream ended unexpectedly
+            break
 
         except requests.exceptions.RequestException as e:
             retry += 1
@@ -292,7 +359,24 @@ def start_and_stream(theme, description, duration,
                      temp_gen, temp_rsn, temp_pol,
                      beats, words_per_beat, tolerance,
                      taper_start_pct, taper_reduction,
-                     custom_waypoints_text):
+                     custom_waypoints_text,
+                     # TTS Advanced
+                     tts_pause_min, tts_pause_max, tts_breathe_frequency,
+                     # Journey
+                     movement_verbs_required, transition_tokens_required,
+                     sensory_coupling, downshift_required, pov_enforce_second_person,
+                     # Destination
+                     destination_promise_beat, arrival_signals_start, settlement_beats,
+                     closure_required, destination_archetype,
+                     # Spatial Coach
+                     enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+                     # Quality
+                     opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
+                     beat_planning_enabled, beat_length_tolerance,
+                     # Performance
+                     max_concurrent_models, model_unload_delay, max_retries,
+                     retry_delay, fallback_model
+                     ):
     payload = build_payload(
         theme, description, duration,
         use_reasoner, use_polish,
@@ -302,7 +386,23 @@ def start_and_stream(theme, description, duration,
         temp_gen, temp_rsn, temp_pol,
         beats, words_per_beat, tolerance,
         taper_start_pct, taper_reduction,
-        custom_waypoints_text
+        custom_waypoints_text,
+        # TTS adv (not sent except tts_optimized)
+        tts_pause_min, tts_pause_max, tts_breathe_frequency,
+        # Journey
+        movement_verbs_required, transition_tokens_required,
+        sensory_coupling, downshift_required, pov_enforce_second_person,
+        # Destination
+        destination_promise_beat, arrival_signals_start, settlement_beats,
+        closure_required, destination_archetype,
+        # Spatial Coach (UI only)
+        enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+        # Quality (UI only)
+        opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
+        beat_planning_enabled, beat_length_tolerance,
+        # Performance (UI only)
+        max_concurrent_models, model_unload_delay, max_retries,
+        retry_delay, fallback_model
     )
 
     started = post_json("/generate/story", payload)
@@ -364,9 +464,13 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
 
             def on_preset_change(preset_key, presets):
                 if not preset_key or not presets or preset_key not in presets:
-                    return gr.update(), gr.update(), gr.update(), gr.update()
+                    return [gr.update()]*8
                 p = presets[preset_key]
-                return gr.update(value=p.get("generator")), gr.update(value=p.get("reasoner")), gr.update(value=p.get("polisher")), gr.update(value=p.get("rotation", True))
+                return [
+                    gr.update(value=p.get("generator")),
+                    gr.update(value=p.get("reasoner")),
+                    gr.update(value=p.get("polisher")),
+                ]
 
             preset_dd.change(on_preset_change, inputs=[preset_dd, presets_state], outputs=[gen_dd, rsn_dd, pol_dd, ])
 
@@ -394,6 +498,11 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
             gr.Markdown("### Waypoints")
             custom_waypoints_text = gr.Textbox(label="Custom waypoints (one per line)", lines=4, placeholder="e.g.\nentry path\ngentle bend\nsmall clearing")
 
+            gr.Markdown("### 🎤 TTS Advanced")
+            tts_pause_min = gr.Slider(0.1, 2.0, value=0.5, step=0.1, label="Pause min (s)")
+            tts_pause_max = gr.Slider(1.0, 5.0, value=3.0, step=0.1, label="Pause max (s)")
+            tts_breathe_frequency = gr.Slider(1, 10, value=4, step=1, label="Breathe frequency")
+
         with gr.Column(scale=1, min_width=520):
             gr.Markdown("### Sessions")
             with gr.Row():
@@ -403,6 +512,40 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
             with gr.Row():
                 manual_id = gr.Textbox(label="Manual Job ID", placeholder="Enter job ID…")
                 attach_manual_btn = gr.Button("🔗 Attach manual")
+
+            gr.Markdown("### 🚶 Embodiment / Journey")
+            movement_verbs_required = gr.Slider(1, 5, value=1, step=1, label="Movement verbs required")
+            transition_tokens_required = gr.Slider(1, 5, value=1, step=1, label="Transition tokens required")
+            sensory_coupling = gr.Slider(1, 5, value=2, step=1, label="Sensory coupling")
+            downshift_required = gr.Checkbox(label="Downshift required", value=True)
+            pov_enforce_second_person = gr.Checkbox(label="Enforce 2nd person POV", value=True)
+
+            gr.Markdown("### 🏡 Destination Architecture")
+            destination_promise_beat = gr.Slider(1, 5, value=1, step=1, label="Destination promise beat")
+            arrival_signals_start = gr.Slider(0.3, 0.95, value=0.7, step=0.05, label="Arrival signals start (fraction)")
+            settlement_beats = gr.Slider(1, 5, value=2, step=1, label="Settlement beats")
+            closure_required = gr.Checkbox(label="Closure required", value=True)
+            destination_archetype = gr.Dropdown(choices=["safe_shelter","peaceful_vista","restorative_water","sacred_space"], value="safe_shelter", label="Destination archetype")
+
+            gr.Markdown("### 🧭 Spatial Coach Agent")
+            enable_spatial_coach = gr.Checkbox(label="Enable Spatial Coach", value=False)
+            spatial_coach_model = gr.Dropdown(choices=[], label="Spatial coach model (default reasoner)", allow_custom_value=True)
+            spatial_coach_temperature = gr.Slider(0.1, 1.0, value=0.2, step=0.05, label="Coach temperature")
+            spatial_coach_max_tokens = gr.Slider(50, 300, value=150, step=10, label="Coach max tokens")
+
+            gr.Markdown("### ⚡ Quality & Planning")
+            opener_penalty_threshold = gr.Slider(1, 10, value=3, step=1, label="Opener penalty threshold")
+            transition_penalty_weight = gr.Slider(0.1, 1.0, value=0.3, step=0.05, label="Transition penalty weight")
+            redundancy_penalty_weight = gr.Slider(0.1, 1.0, value=0.2, step=0.05, label="Redundancy penalty weight")
+            beat_planning_enabled = gr.Checkbox(label="Beat planning enabled", value=True)
+            beat_length_tolerance = gr.Slider(0.05, 0.25, value=0.10, step=0.01, label="Beat length tolerance")
+
+            gr.Markdown("### 💾 Performance & VRAM")
+            max_concurrent_models = gr.Slider(1, 3, value=1, step=1, label="Max concurrent models")
+            model_unload_delay = gr.Slider(0.5, 10.0, value=2.0, step=0.5, label="Model unload delay (s)")
+            max_retries = gr.Slider(1, 10, value=3, step=1, label="Max retries")
+            retry_delay = gr.Slider(0.5, 5.0, value=1.0, step=0.5, label="Retry delay (s)")
+            fallback_model = gr.Textbox(label="Fallback model", value="qwen3:8b")
 
             gr.Markdown("### Status & Outputs")
             status = gr.HTML(value="<div style='padding:16px;color:#6b7280'>Ready.</div>")
@@ -422,9 +565,10 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
         return (models, presets,
                 gr.update(choices=models), gr.update(choices=models), gr.update(choices=models),
                 gr.update(choices=list(presets.keys())),
+                gr.update(choices=models),  # coach model dropdown
                 gr.update(choices=jobs, value=None))
 
-    demo.load(init_load, inputs=None, outputs=[models_state, presets_state, gen_dd, rsn_dd, pol_dd, preset_dd, jobs_dd])
+    demo.load(init_load, inputs=None, outputs=[models_state, presets_state, gen_dd, rsn_dd, pol_dd, preset_dd, spatial_coach_model, jobs_dd])
 
     def refresh_jobs_only():
         return gr.update(choices=load_jobs_labels(), value=None)
@@ -452,6 +596,18 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
             taper_start_pct, taper_reduction,
             # Waypoints
             custom_waypoints_text,
+            # TTS Advanced
+            tts_pause_min, tts_pause_max, tts_breathe_frequency,
+            # Journey
+            movement_verbs_required, transition_tokens_required, sensory_coupling, downshift_required, pov_enforce_second_person,
+            # Destination
+            destination_promise_beat, arrival_signals_start, settlement_beats, closure_required, destination_archetype,
+            # Spatial Coach
+            enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+            # Quality
+            opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight, beat_planning_enabled, beat_length_tolerance,
+            # Performance
+            max_concurrent_models, model_unload_delay, max_retries, retry_delay, fallback_model
         ],
         outputs=[status, story, metrics, schema],
         concurrency_id="generate", concurrency_limit=1
