@@ -49,6 +49,15 @@ class EnhancedStoryRequest(BaseModel):
     tolerance: Optional[float] = None  # ±
     taper: Optional[Dict[str, float]] = None  # {"start_pct":0.8,"reduction":0.7}
     rotation: Optional[bool] = None
+    
+    # New: Direct parameter control
+    pov_enforce_second_person: Optional[bool] = None
+    movement_verbs_required: Optional[int] = None
+    transition_tokens_required: Optional[int] = None
+    sensory_coupling: Optional[int] = None
+    downshift_required: Optional[bool] = None
+    closure_required: Optional[bool] = None
+    tts_optimized: Optional[bool] = None
 
 @router.post("/generate/story")
 async def generate_story(request: EnhancedStoryRequest, background_tasks: BackgroundTasks):
@@ -60,6 +69,30 @@ async def generate_story(request: EnhancedStoryRequest, background_tasks: Backgr
         if request.models.reasoner: models_dict["reasoner"] = request.models.reasoner
         if request.models.polisher: models_dict["polisher"] = request.models.polisher
 
+    # Build comprehensive generation parameters from request
+    generation_params = {
+        # Core parameters from request
+        'pov_enforce_second_person': request.pov_enforce_second_person if request.pov_enforce_second_person is not None else settings.POV_ENFORCE_SECOND_PERSON,
+        'movement_verbs_required': request.movement_verbs_required if request.movement_verbs_required is not None else settings.MOVEMENT_VERBS_REQUIRED,
+        'transition_tokens_required': request.transition_tokens_required if request.transition_tokens_required is not None else settings.TRANSITION_TOKENS_REQUIRED,
+        'sensory_coupling': request.sensory_coupling if request.sensory_coupling is not None else settings.SENSORY_COUPLING,
+        'downshift_required': request.downshift_required if request.downshift_required is not None else settings.DOWNSHIFT_REQUIRED,
+        'closure_required': request.closure_required if request.closure_required is not None else settings.CLOSURE_REQUIRED,
+        
+        # Advanced parameters
+        'words_per_beat': request.words_per_beat if request.words_per_beat is not None else settings.WORDS_PER_BEAT,
+        'beats_target': request.beats if request.beats is not None else settings.BEATS_PER_STORY,
+        'taper_start_pct': (request.taper or {}).get('start_pct', settings.TAPER_START_PERCENTAGE),
+        'taper_reduction': (request.taper or {}).get('reduction', settings.TAPER_REDUCTION_FACTOR),
+        'temperature': (request.temps or {}).get('generator', settings.MODEL_TEMPERATURE),
+        
+        # Feature flags
+        'tts_markers': request.tts_markers,
+        'strict_schema': request.strict_schema,
+        'tts_optimized': request.tts_optimized if request.tts_optimized is not None else request.tts_markers,
+        'sensory_rotation_enabled': request.rotation if request.rotation is not None else settings.SENSORY_ROTATION_ENABLED,
+    }
+
     # Initialize job record with enhanced telemetry fields
     jobs[job_id] = {
         "status": "started",
@@ -69,12 +102,14 @@ async def generate_story(request: EnhancedStoryRequest, background_tasks: Backgr
         "total_steps": 8,
         "created_at": datetime.now().isoformat(),
         "request": request.dict(),
+        "generation_params": generation_params,
         "enhanced_features": {
             "tts_markers": request.tts_markers,
             "strict_schema": request.strict_schema,
             "use_reasoner": request.use_reasoner,
             "use_polish": request.use_polish,
-            "models": models_dict or settings.DEFAULT_MODELS
+            "models": models_dict or settings.DEFAULT_MODELS,
+            "parameter_awareness": True
         },
         # Micro progress
         "beat": {"index": 0, "total": 0, "stage": "init", "stage_progress": 0},
@@ -89,23 +124,26 @@ async def generate_story(request: EnhancedStoryRequest, background_tasks: Backgr
             "sleep_taper": {
                 "start_pct": (request.taper or {}).get("start_pct", settings.TAPER_START_PERCENTAGE),
                 "reduction": (request.taper or {}).get("reduction", settings.TAPER_REDUCTION_FACTOR),
-            }
+            },
+            "parameter_compliance": 0.0
         },
         "timing": {"elapsed_sec": 0, "eta_sec": None},
     }
 
     job_events[job_id] = asyncio.Event()
 
-    background_tasks.add_task(enhanced_story_generation_pipeline, job_id=job_id, req=request)
+    background_tasks.add_task(enhanced_story_generation_pipeline, job_id=job_id, req=request, params=generation_params)
     return {
         "job_id": job_id,
         "status": "processing",
-        "message": "Enhanced story generation started",
+        "message": "Enhanced story generation started with parameter awareness",
         "features": {
             "tts_markers": request.tts_markers,
             "strict_schema": request.strict_schema,
             "multi_model": bool(models_dict),
-            "quality_enhancements": request.use_reasoner or request.use_polish
+            "quality_enhancements": request.use_reasoner or request.use_polish,
+            "parameter_awareness": True,
+            "generation_params": generation_params
         }
     }
 
@@ -144,9 +182,10 @@ async def stream_job_progress(job_id: str):
                 "timing": job.get("timing", {}),
                 "timestamp": datetime.now().isoformat(),
                 "enhanced_features": job.get("enhanced_features", {}),
-                        "generation_history": job.get("generation_history", []),
-        "current_generation": job.get("current_generation", {}),
-        "final_summary": job.get("final_summary", {})
+                "generation_history": job.get("generation_history", []),
+                "current_generation": job.get("current_generation", {}),
+                "final_summary": job.get("final_summary", {}),
+                "generation_params": job.get("generation_params", {})
             }
 
         while job_id in jobs:
@@ -194,7 +233,8 @@ async def get_job_telemetry(job_id: str):
         "quality": job["quality"],
         "timing": job["timing"],
         "created_at": job["created_at"],
-        "request": job["request"]
+        "request": job["request"],
+        "generation_params": job.get("generation_params", {})
     }
 
 @router.get("/generate/{job_id}/result")
@@ -217,7 +257,9 @@ async def get_job_result(job_id: str):
             "features_used": job.get("enhanced_features", {}),
             "duration": result.get("generation_time", 0),
             "word_count": len(result.get("story_text", "").split()),
-            "beats_generated": result.get("beats_count", 0)
+            "beats_generated": result.get("beats_count", 0),
+            "parameter_compliance": result.get("coherence_stats", {}).get("parameter_compliance_avg", 0.0),
+            "generation_params": job.get("generation_params", {})
         },
         "output_files": {
             "story_file": result.get("story_file"),
@@ -239,7 +281,8 @@ async def list_jobs():
                 "created_at": jdata.get("created_at"),
                 "progress": jdata.get("progress", 0),
                 "enhanced_features": jdata.get("enhanced_features", {}),
-                "duration": jdata.get("request", {}).get("duration", 45)
+                "duration": jdata.get("request", {}).get("duration", 45),
+                "generation_params": jdata.get("generation_params", {})
             }
             for jid, jdata in jobs.items()
         ]
@@ -255,7 +298,16 @@ async def get_model_presets():
             "sleep_taper": settings.SLEEP_TAPER_ENABLED,
             "tts_markers": True,
             "strict_schema": True,
-            "multi_model": True
+            "multi_model": True,
+            "parameter_awareness": True
+        },
+        "parameter_defaults": {
+            "pov_enforce_second_person": settings.POV_ENFORCE_SECOND_PERSON,
+            "movement_verbs_required": settings.MOVEMENT_VERBS_REQUIRED,
+            "transition_tokens_required": settings.TRANSITION_TOKENS_REQUIRED,
+            "sensory_coupling": settings.SENSORY_COUPLING,
+            "downshift_required": settings.DOWNSHIFT_REQUIRED,
+            "closure_required": settings.CLOSURE_REQUIRED
         }
     }
 
@@ -263,14 +315,17 @@ async def get_model_presets():
 async def health_check_enhanced():
     return {
         "status": "healthy",
-        "version": "2.1.0-enhanced",
+        "version": "2.2.0-parameter-aware",
         "features": {
             "multi_model_orchestration": True,
             "quality_enhancements": True,
             "tts_markers": True,
             "strict_schema": True,
             "sensory_rotation": settings.SENSORY_ROTATION_ENABLED,
-            "sleep_taper": settings.SLEEP_TAPER_ENABLED
+            "sleep_taper": settings.SLEEP_TAPER_ENABLED,
+            "parameter_awareness": True,
+            "embodiment_validation": True,
+            "destination_arc_validation": True
         },
         "models": {
             "default_models": settings.DEFAULT_MODELS,
@@ -301,8 +356,9 @@ async def _set_event_threadsafe(loop: asyncio.AbstractEventLoop, ev: asyncio.Eve
     # Helper per svegliare gli stream in modo sicuro dal thread di background
     ev.set()
 
-async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequest):
+async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequest, params: Dict[str, Any]):
     """
+    Enhanced generation pipeline with parameter awareness.
     Esegue la generazione REALE usando StoryGenerator.generate_enhanced_story,
     senza bloccare l'event loop. Collega gli hook dell'orchestrator per
     emettere beat/stage nello stream SSE.
@@ -329,6 +385,11 @@ async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequ
                     "stage": beat_info.get("stage", jobs[job_id]["beat"].get("stage", "")),
                     "stage_progress": beat_info.get("stage_progress", jobs[job_id]["beat"].get("stage_progress", 0)),
                 })
+            # Update quality metrics if available
+            quality_info = stage_metrics.get("quality")
+            if isinstance(quality_info, dict):
+                jobs[job_id]["quality"].update(quality_info)
+                
         # Sveglia gli stream (thread-safe)
         if job_id in job_events:
             loop.call_soon_threadsafe(asyncio.create_task, _set_event_threadsafe(loop, job_events[job_id]))
@@ -336,7 +397,7 @@ async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequ
     def blocking_generation():
         """
         Eseguita nel thread pool:
-        - Crea StoryGenerator reale con orchestrator
+        - Crea StoryGenerator reale con orchestrator e parametri
         - Collega on_stage_start/on_stage_end per i beat
         - Chiama generate_enhanced_story (async) nel loop del thread
         - Salva file output e completa lo stato
@@ -349,14 +410,15 @@ async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequ
                 if req.models.reasoner: models_dict["reasoner"] = req.models.reasoner
                 if req.models.polisher: models_dict["polisher"] = req.models.polisher
 
-            # Istanzia il generatore REALE
+            # Istanzia il generatore REALE con parametri
             gen = StoryGenerator(
                 target_language="en",
                 models=models_dict or None,
                 use_reasoner=req.use_reasoner,
                 use_polish=req.use_polish,
                 tts_markers=req.tts_markers,
-                strict_schema=req.strict_schema
+                strict_schema=req.strict_schema,
+                generation_params=params  # Pass full parameter dictionary
             )
 
             # Collega gli hook dell'orchestrator per battere/stage reali (se presenti)
@@ -411,17 +473,23 @@ async def enhanced_story_generation_pipeline(job_id: str, req: EnhancedStoryRequ
                     json.dump({
                         "metrics": result["metrics"],
                         "coherence_stats": result.get("coherence_stats", {}),
-                        "memory_stats": result.get("memory_stats", {})
+                        "memory_stats": result.get("memory_stats", {}),
+                        "generation_params": params
                     }, f, indent=2)
 
             # Completa job
             if job_id in jobs:
                 jobs[job_id]["status"] = "completed"
                 jobs[job_id]["progress"] = 100
-                jobs[job_id]["current_step"] = "✅ Enhanced generation complete!"
+                jobs[job_id]["current_step"] = "✅ Enhanced generation complete with parameter compliance!"
                 jobs[job_id]["current_step_number"] = 8
                 jobs[job_id]["result"] = result
                 jobs[job_id]["completed_at"] = datetime.now().isoformat()
+                
+                # Update final quality metrics
+                coherence_stats = result.get("coherence_stats", {})
+                jobs[job_id]["quality"]["parameter_compliance"] = coherence_stats.get("parameter_compliance_avg", 0.0)
+                
                 if job_id in job_events:
                     loop.call_soon_threadsafe(asyncio.create_task, _set_event_threadsafe(loop, job_events[job_id]))
             return True
