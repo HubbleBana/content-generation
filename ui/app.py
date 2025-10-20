@@ -215,10 +215,13 @@ def render_status_html(ev: Dict[str, Any]) -> str:
 
     if status == "completed":
         color = "#16a34a"; icon = "✅"
+        pb_main = progress_bar(100, "#16a34a")
     elif status == "failed":
         color = "#dc2626"; icon = "❌"
+        pb_main = progress_bar(progress, "#dc2626")
     else:
         color = "#0ea5e9"; icon = "🚀"
+        pb_main = progress_bar(progress, color)
 
     gen = models.get("generator", "") or "—"
     rsn = models.get("reasoner", "") or "—"
@@ -291,8 +294,8 @@ def render_status_html(ev: Dict[str, Any]) -> str:
         {params_box}
     </div>
     """
-    html = html.replace("{status_upper}", status_upper) \
-               .replace("{pb_main}", progress_bar(progress, color)) \
+    html = html.replace("{pb_main}", pb_main) \
+               .replace("{status_upper}", status_upper) \
                .replace("{beat_section}", beat_section) \
                .replace("{gen_t}", f"<span style='color:#3b82f6'>({tgen})</span>" if tgen is not None else "") \
                .replace("{rsn_t}", f"<span style='color:#3b82f6'>({trsn})</span>" if trsn is not None else "") \
@@ -478,11 +481,6 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
                     gr.update(value=p.get("generator")),
                     gr.update(value=p.get("reasoner")),
                     gr.update(value=p.get("polisher")),
-                    gr.update(value=p.get("rotation", True)),
-                    gr.update(value=p.get("beats", 0)),
-                    gr.update(value=p.get("words_per_beat", 0)),
-                    gr.update(value=p.get("temps", {}).get("generator", 0.7)),
-                    gr.update(value=p.get("temps", {}).get("polisher", 0.4)),
                 ]
 
             preset_dd.change(on_preset_change, inputs=[preset_dd, presets_state], outputs=[gen_dd, rsn_dd, pol_dd, ])
