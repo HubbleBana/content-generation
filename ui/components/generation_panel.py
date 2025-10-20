@@ -19,7 +19,8 @@ def create_basic_settings() -> Tuple:
         )
         
         description = gr.Textbox(
-            label="Additional Description (Optional)",
+            label="Additional Description (Optional)
+",
             placeholder="Add specific details, mood, or sensory elements...",
             lines=3
         )
@@ -34,9 +35,10 @@ def create_basic_settings() -> Tuple:
             )
             
             preset = gr.Dropdown(
-                choices=["quality_high", "balanced", "fast", "custom"],
-                value="balanced",
-                label="Quality Preset"
+                choices=["balanced", "fast", "custom"],
+                value=None,
+                label="Quality Preset",
+                allow_custom_value=False
             )
     
     return theme, description, duration, preset
@@ -62,6 +64,7 @@ def create_model_settings() -> Tuple:
             generator_model = gr.Dropdown(
                 label="Generator Model",
                 choices=[],
+                value=None,
                 allow_custom_value=True,
                 info="Primary story generation model"
             )
@@ -69,6 +72,7 @@ def create_model_settings() -> Tuple:
             reasoner_model = gr.Dropdown(
                 label="Reasoner Model",
                 choices=[],
+                value=None,
                 allow_custom_value=True,
                 info="Logic and coherence enhancement"
             )
@@ -76,6 +80,7 @@ def create_model_settings() -> Tuple:
             polisher_model = gr.Dropdown(
                 label="Polisher Model",
                 choices=[],
+                value=None,
                 allow_custom_value=True,
                 info="Style refinement and flow"
             )
@@ -228,14 +233,10 @@ def create_advanced_settings() -> Tuple:
             )
             
             archetype = gr.Dropdown(
-                choices=[
-                    "safe_shelter",
-                    "peaceful_vista", 
-                    "restorative_water",
-                    "sacred_space"
-                ],
-                value="safe_shelter",
+                choices=[],
+                value=None,
                 label="Destination Archetype",
+                allow_custom_value=False,
                 info="Type of peaceful endpoint"
             )
     
@@ -306,20 +307,19 @@ def build_generation_payload(
     if description and description.strip():
         payload["description"] = description.strip()
     
-    # Add custom models if specified
+    # Add custom models if specified and non-empty
     if use_custom_models:
         models = {}
-        if generator_model and generator_model.strip(): 
+        if generator_model and not generator_model.startswith("❌") and not generator_model.startswith("⚠️"):
             models["generator"] = generator_model.strip()
-        if reasoner_model and reasoner_model.strip(): 
+        if reasoner_model and not reasoner_model.startswith("❌") and not reasoner_model.startswith("⚠️"):
             models["reasoner"] = reasoner_model.strip()
-        if polisher_model and polisher_model.strip(): 
+        if polisher_model and not polisher_model.startswith("❌") and not polisher_model.startswith("⚠️"):
             models["polisher"] = polisher_model.strip()
-        
         if models:
             payload["models"] = models
     
-    # Add advanced parameters
+    # Add advanced parameters + archetype
     payload["advanced"] = {
         "model_temperature": float(model_temperature),
         "spatial_coach": bool(coach_enabled),
@@ -333,8 +333,12 @@ def build_generation_payload(
             "enabled": bool(destination_arc),
             "arrival_signals_start": float(arrival_start),
             "settlement_beats": int(settlement_beats),
-            "archetype": archetype
+            "archetype": archetype if archetype else "safe_shelter"
         }
     }
+    
+    # Apply preset (informational for now; could map to temps/weights)
+    if preset:
+        payload["preset"] = preset
     
     return payload
