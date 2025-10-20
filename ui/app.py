@@ -68,7 +68,7 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         total_steps = st.get("total_steps", 8)
         elapsed = str(timedelta(seconds=int(time.time()-start_time)))[2:7]
         bar = f"[{'🟩'*int(progress/2.5)}{'⬜'*(40-int(progress/2.5))}] {progress:.1f}%"
-        status_text = f"""🚀 Sleep Stories AI — v3.5
+        status_text = f"""🚀 Sleep Stories AI — v3.6
 Job: {job_id}\nElapsed: {elapsed}
 Step {step_num}/{total_steps}: {step}
 {bar}
@@ -138,12 +138,12 @@ Step {step_num}/{total_steps}: {step}
     story = res.get('story_text','')
     metrics = json.dumps(res.get('metrics',{}), indent=2)
     coherence = json.dumps(res.get('coherence_stats',{}), indent=2)
-    yield (last_status+"\n✅ COMPLETED", story, metrics+"\n\n---\nCoherence:\n"+coherence, "", json.dumps(res.get('beats_schema',{}), indent=2) or "(no schema)")
+    yield (last_status+"\n✅ COMPLETED", story, metrics+"\n\n---\nCoherence:\n"+coherence, "", json.dumps(res.get('beats_schema',{}), indent=2) or "(no schema)"
 
 # --- UI ---
 
-with gr.Blocks(title="Sleep Stories AI — v3.5", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌙 Sleep Stories AI — v3.5")
+with gr.Blocks(title="Sleep Stories AI — v3.6", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🌙 Sleep Stories AI — v3.6")
 
     with gr.Row():
         with gr.Column(scale=1, min_width=460):
@@ -191,7 +191,6 @@ with gr.Blocks(title="Sleep Stories AI — v3.5", theme=gr.themes.Soft()) as dem
                 active_jobs = gr.Dropdown(label="Active Jobs (Resume)", choices=[], value=None, allow_custom_value=False)
                 refresh_jobs = gr.Button("↻", size="sm")
                 attach_btn = gr.Button("🔗 Attach", variant="secondary")
-            current_job = gr.Textbox(label="Current Job ID", interactive=False)
             status = gr.Textbox(label="Status", lines=10, interactive=False)
 
             gr.Markdown("### 📤 Outputs")
@@ -272,19 +271,7 @@ with gr.Blocks(title="Sleep Stories AI — v3.5", theme=gr.themes.Soft()) as dem
 
     def run_generate(*args):
         payload = pack_payload(*args)
-        gen_it = start_and_stream(payload)
-        first = next(gen_it)
-        status_txt, story, metrics, outline, schema = first
-        job_id = ""
-        if "Job: " in status_txt:
-            try:
-                job_id = status_txt.split("Job: ",1)[1].split("\n",1)[0].strip()
-            except Exception:
-                job_id = ""
-        # update current job id
-        current_job.update(job_id)
-        yield (status_txt, story, metrics, outline, schema)
-        for update in gen_it:
+        for update in start_and_stream(payload):
             yield update
 
     def run_attach(label):
