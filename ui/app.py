@@ -4,7 +4,7 @@ Completely rewritten frontend with real-time streaming, enhanced UI,
 and comprehensive parameter control for the Sleep Stories AI system.
 
 By Jimmy - Frontend Expert
-Updated for Gradio 4.44+ compatibility
+Updated for Gradio 4.44+ compatibility and fixed dropdown population
 """
 
 import gradio as gr
@@ -56,14 +56,28 @@ def load_custom_css() -> str:
             return f.read()
     return ""
 
-def refresh_models() -> gr.update:
-    """Refresh available models from API."""
+def refresh_all_models() -> Tuple[gr.update, gr.update, gr.update]:
+    """Refresh ALL model dropdowns (generator, reasoner, polisher)."""
     try:
         models = api_client.get_models()
-        return create_model_choices_update(models)
+        choices = [model.get("name", "") for model in models if isinstance(model, dict)]
+        
+        if not choices:
+            # If no models found, add a message
+            choices = ["⚠️ No models found - check Ollama connection"]
+            logger.warning("No models found from Ollama API")
+        else:
+            logger.info(f"Found {len(choices)} models: {choices[:3]}{'...' if len(choices) > 3 else ''}")
+        
+        # Return updates for all three dropdowns
+        update = gr.update(choices=choices, value=choices[0] if choices and not choices[0].startswith("⚠️") else None)
+        return update, update, update
+        
     except Exception as e:
         logger.error(f"Failed to refresh models: {e}")
-        return gr.update(choices=[], value=None)
+        error_choice = [f"❌ API Error: {str(e)[:50]}..."]
+        error_update = gr.update(choices=error_choice, value=None)
+        return error_update, error_update, error_update
 
 def refresh_jobs(show_completed: bool = False) -> gr.update:
     """Refresh active jobs from API."""
@@ -72,18 +86,57 @@ def refresh_jobs(show_completed: bool = False) -> gr.update:
             jobs = api_client.list_jobs()
         else:
             jobs = api_client.get_active_jobs()
-        return create_job_choices_update(jobs, api_client)
+        
+        if not jobs:
+            return gr.update(choices=["📭 No active jobs found"], value=None)
+        
+        choices = [api_client.format_job_label(job) for job in jobs]
+        logger.info(f"Found {len(jobs)} jobs")
+        return gr.update(choices=choices, value=None)
+        
     except Exception as e:
         logger.error(f"Failed to refresh jobs: {e}")
-        return gr.update(choices=[], value=None)
+        return gr.update(choices=[f"❌ API Error: {str(e)[:50]}..."], value=None)
+
+def get_model_presets_and_defaults() -> Tuple[gr.update, List[str]]:
+    """Get model presets and return archetype choices."""
+    try:
+        presets = api_client.get_model_presets()
+        logger.info(f"Retrieved model presets: {list(presets.get('presets', {}).keys())}")
+        
+        # Standard archetype choices (these are hardcoded in the backend)
+        archetype_choices = [
+            "safe_shelter",
+            "peaceful_vista", 
+            "restorative_water",
+            "sacred_space",
+            "mystical_grove",
+            "cozy_hideaway"
+        ]
+        
+        # Update preset dropdown
+        preset_choices = ["quality_high", "balanced", "fast", "custom"]
+        if presets.get("presets"):
+            preset_choices = list(presets["presets"].keys()) + ["custom"]
+        
+        return gr.update(choices=preset_choices, value="balanced"), archetype_choices
+        
+    except Exception as e:
+        logger.error(f"Failed to get presets: {e}")
+        # Return defaults if API fails
+        return gr.update(choices=["balanced", "fast", "custom"], value="balanced"), [
+            "safe_shelter", "peaceful_vista", "restorative_water", "sacred_space"
+        ]
 
 def get_system_info() -> Dict[str, Any]:
     """Get system information and statistics."""
     try:
-        return api_client.get_generation_stats()
+        stats = api_client.get_generation_stats()
+        logger.info("Retrieved system statistics")
+        return stats
     except Exception as e:
         logger.error(f"Failed to get system info: {e}")
-        return {"error": str(e)}
+        return {"error": str(e), "status": "API connection failed"}
 
 def start_generation(*args) -> Generator[Tuple, None, None]:
     """Start story generation with real-time streaming."""
@@ -183,10 +236,17 @@ def start_generation(*args) -> Generator[Tuple, None, None]:
 def attach_to_job(job_label: str) -> Generator[Tuple, None, None]:
     """Attach to existing job for monitoring."""
     try:
+        if not job_label or job_label.startswith(("📭", "❌")):
+            yield (
+                format_error_message("Please select a valid job to attach to"),
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+            )
+            return
+        
         job_id = api_client.parse_job_id_from_label(job_label)
         if not job_id:
             yield (
-                format_error_message("Please select a valid job to attach to"),
+                format_error_message("Unable to parse job ID from selection"),
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
             )
             return
@@ -383,9 +443,9 @@ def create_interface():
             schema_valid, total_segments, total_duration
         ]
         
-        # Define all inputs for generation
+        # Define all inputs for generation (includes preset now)
         generation_inputs = [
-            theme, description, duration,
+            theme, description, duration, preset,
             use_custom_models, generator_model, reasoner_model, polisher_model,
             use_reasoner, use_polisher,
             tts_markers, strict_schema, sensory_rotation, sleep_taper,
@@ -421,11 +481,11 @@ def create_interface():
             outputs=generation_outputs
         )
         
-        # Refresh functions - Light API calls, higher concurrency
+        # Refresh ALL models - Update all three model dropdowns
         refresh_models_btn.click(
-            fn=refresh_models,
+            fn=refresh_all_models,
             inputs=None,
-            outputs=[generator_model],
+            outputs=[generator_model, reasoner_model, polisher_model],
             concurrency_limit=5,
             concurrency_id="api_calls"
         )
@@ -463,21 +523,49 @@ def create_interface():
             concurrency_id="api_calls"
         )
         
-        # Load initial data
+        # Load initial data - FIXED to populate ALL components
+        def load_initial_data():
+            """Load all initial data on startup."""
+            try:
+                # Get models for all three dropdowns
+                gen_update, reas_update, pol_update = refresh_all_models()
+                
+                # Get jobs
+                jobs_update = refresh_jobs(False)
+                
+                # Get system info
+                system_info = get_system_info()
+                
+                # Get presets and archetype choices
+                preset_update, archetype_choices = get_model_presets_and_defaults()
+                
+                return (
+                    gen_update,      # generator_model
+                    reas_update,     # reasoner_model  
+                    pol_update,      # polisher_model
+                    jobs_update,     # active_jobs_dropdown
+                    system_info,     # system_status
+                    preset_update,   # preset dropdown
+                    gr.update(choices=archetype_choices, value=archetype_choices[0])  # archetype
+                )
+            except Exception as e:
+                logger.error(f"Failed to load initial data: {e}")
+                error_update = gr.update(choices=[f"❌ Load Error: {e}"], value=None)
+                return error_update, error_update, error_update, error_update, {"error": str(e)}, error_update, error_update
+        
         demo.load(
-            fn=lambda: (
-                refresh_models(),
-                refresh_jobs(False),
-                get_system_info()
-            ),
+            fn=load_initial_data,
             inputs=None,
-            outputs=[generator_model, active_jobs_dropdown, system_status]
+            outputs=[
+                generator_model, reasoner_model, polisher_model, 
+                active_jobs_dropdown, system_status, preset, archetype
+            ]
         )
     
     return demo
 
 if __name__ == "__main__":
-    logger.info("Starting Sleep Stories AI - Enhanced Frontend v2.0 (Gradio 4.44+ Compatible)")
+    logger.info("Starting Sleep Stories AI - Enhanced Frontend v2.0 (Dropdown Fix Applied)")
     
     # Start auto-refresh worker
     refresh_thread = threading.Thread(target=auto_refresh_jobs_worker, daemon=True)
