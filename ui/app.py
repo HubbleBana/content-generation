@@ -54,7 +54,7 @@ def parse_job_id(label: str) -> str:
     return (label or "").split("|", 1)[0]
 
 # ----------------------
-# Payload builder — ESTESO con tutti i parametri del backend
+# Payload builder — completo con tutti i parametri supportati dal backend
 # ----------------------
 def build_payload(theme, description, duration,
                   use_reasoner, use_polish,
@@ -64,7 +64,24 @@ def build_payload(theme, description, duration,
                   temp_gen, temp_rsn, temp_pol,
                   beats, words_per_beat, tolerance,
                   taper_start_pct, taper_reduction,
-                  custom_waypoints_text) -> Dict[str, Any]:
+                  custom_waypoints_text,
+                  # TTS Advanced
+                  tts_pause_min, tts_pause_max, tts_breathe_frequency,
+                  # Spatial/Journey (Embodiment)
+                  movement_verbs_required, transition_tokens_required,
+                  sensory_coupling, downshift_required, pov_enforce_second_person,
+                  # Destination Architecture
+                  destination_promise_beat, arrival_signals_start, settlement_beats,
+                  closure_required, destination_archetype,
+                  # Spatial Coach Agent
+                  enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+                  # Quality / Planning
+                  opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
+                  beat_planning_enabled, beat_length_tolerance,
+                  # Performance / VRAM / Retry
+                  max_concurrent_models, model_unload_delay, max_retries,
+                  retry_delay, fallback_model
+                  ) -> Dict[str, Any]:
 
     models = {}
     if generator_model: models["generator"] = generator_model
@@ -76,7 +93,7 @@ def build_payload(theme, description, duration,
     if custom_waypoints_text and custom_waypoints_text.strip():
         custom_waypoints = [w.strip() for w in custom_waypoints_text.splitlines() if w.strip()]
 
-    payload = {
+    payload: Dict[str, Any] = {
         "theme": theme,
         "duration": int(duration),
         "description": description or None,
@@ -88,10 +105,10 @@ def build_payload(theme, description, duration,
         "tts_markers": bool(tts_markers),
         "strict_schema": bool(strict_schema),
 
-        # Questi campi sono opzionali nel router: se None, usa i defaults del backend
+        # opzionali
         "sensory_rotation": bool(sensory_rotation) if sensory_rotation is not None else None,
         "sleep_taper": bool(sleep_taper) if sleep_taper is not None else None,
-        "rotation": bool(rotation) if rotation is not None else None,  # AGGIUNTO
+        "rotation": bool(rotation) if rotation is not None else None,
 
         # Advanced tweakables
         "temps": {
@@ -109,6 +126,57 @@ def build_payload(theme, description, duration,
 
         # Waypoints opzionali
         "custom_waypoints": custom_waypoints
+    }
+
+    # TTS advanced block
+    payload["tts_advanced"] = {
+        "pause_min": float(tts_pause_min),
+        "pause_max": float(tts_pause_max),
+        "breathe_frequency": int(tts_breathe_frequency)
+    }
+
+    # Journey / Embodiment block
+    payload["journey_settings"] = {
+        "movement_verbs_required": int(movement_verbs_required),
+        "transition_tokens_required": int(transition_tokens_required),
+        "sensory_coupling": int(sensory_coupling),
+        "downshift_required": bool(downshift_required),
+        "pov_enforce_second_person": bool(pov_enforce_second_person)
+    }
+
+    # Destination Architecture block
+    payload["destination_settings"] = {
+        "promise_beat": int(destination_promise_beat),
+        "arrival_signals_start": float(arrival_signals_start),
+        "settlement_beats": int(settlement_beats),
+        "closure_required": bool(closure_required),
+        "archetype": destination_archetype
+    }
+
+    # Spatial Coach Agent block
+    payload["spatial_coach_settings"] = {
+        "enabled": bool(enable_spatial_coach),
+        "model": spatial_coach_model or None,
+        "temperature": float(spatial_coach_temperature),
+        "max_tokens": int(spatial_coach_max_tokens)
+    }
+
+    # Quality / Planning block
+    payload["quality_settings"] = {
+        "opener_penalty_threshold": int(opener_penalty_threshold),
+        "transition_penalty_weight": float(transition_penalty_weight),
+        "redundancy_penalty_weight": float(redundancy_penalty_weight),
+        "beat_planning_enabled": bool(beat_planning_enabled),
+        "beat_length_tolerance": float(beat_length_tolerance)
+    }
+
+    # Performance / VRAM / Retry block
+    payload["performance_settings"] = {
+        "max_concurrent_models": int(max_concurrent_models),
+        "model_unload_delay": float(model_unload_delay),
+        "max_retries": int(max_retries),
+        "retry_delay": float(retry_delay),
+        "fallback_model": fallback_model
     }
 
     return payload
@@ -282,26 +350,61 @@ def stream_sse(job_id: str):
             time.sleep(min(2 ** retry, 8))
 
 # ----------------------
-# Actions - AGGIORNATO con nuovo parametro rotation
+# Actions
 # ----------------------
 def start_and_stream(theme, description, duration,
                      use_reasoner, use_polish,
                      tts_markers, strict_schema,
-                     sensory_rotation, sleep_taper, rotation,  # AGGIUNTO rotation
+                     sensory_rotation, sleep_taper, rotation,
                      generator_model, reasoner_model, polisher_model,
                      temp_gen, temp_rsn, temp_pol,
                      beats, words_per_beat, tolerance,
                      taper_start_pct, taper_reduction,
-                     custom_waypoints_text):
-    payload = build_payload(theme, description, duration,
-                            use_reasoner, use_polish,
-                            tts_markers, strict_schema,
-                            sensory_rotation, sleep_taper, rotation,  # AGGIUNTO rotation
-                            generator_model, reasoner_model, polisher_model,
-                            temp_gen, temp_rsn, temp_pol,
-                            beats, words_per_beat, tolerance,
-                            taper_start_pct, taper_reduction,
-                            custom_waypoints_text)
+                     custom_waypoints_text,
+                     # TTS Advanced
+                     tts_pause_min, tts_pause_max, tts_breathe_frequency,
+                     # Journey
+                     movement_verbs_required, transition_tokens_required,
+                     sensory_coupling, downshift_required, pov_enforce_second_person,
+                     # Destination
+                     destination_promise_beat, arrival_signals_start, settlement_beats,
+                     closure_required, destination_archetype,
+                     # Spatial Coach
+                     enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+                     # Quality
+                     opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
+                     beat_planning_enabled, beat_length_tolerance,
+                     # Performance
+                     max_concurrent_models, model_unload_delay, max_retries,
+                     retry_delay, fallback_model
+                     ):
+    payload = build_payload(
+        theme, description, duration,
+        use_reasoner, use_polish,
+        tts_markers, strict_schema,
+        sensory_rotation, sleep_taper, rotation,
+        generator_model, reasoner_model, polisher_model,
+        temp_gen, temp_rsn, temp_pol,
+        beats, words_per_beat, tolerance,
+        taper_start_pct, taper_reduction,
+        custom_waypoints_text,
+        # TTS adv
+        tts_pause_min, tts_pause_max, tts_breathe_frequency,
+        # Journey
+        movement_verbs_required, transition_tokens_required,
+        sensory_coupling, downshift_required, pov_enforce_second_person,
+        # Destination
+        destination_promise_beat, arrival_signals_start, settlement_beats,
+        closure_required, destination_archetype,
+        # Spatial Coach
+        enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+        # Quality
+        opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight,
+        beat_planning_enabled, beat_length_tolerance,
+        # Performance
+        max_concurrent_models, model_unload_delay, max_retries,
+        retry_delay, fallback_model
+    )
 
     started = post_json("/generate/story", payload)
     if not started or "job_id" not in started:
@@ -339,92 +442,119 @@ def attach_manual(manual_id: str):
         yield update
 
 # ----------------------
-# UI - AGGIORNATO con controllo rotation
+# UI
 # ----------------------
-with gr.Blocks(title="Sleep Stories — Enhanced UI", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("## 🌙 Sleep Stories — Enhanced UI with All Backend Parameters")
+with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("## 🌙 Sleep Stories — Complete UI")
 
     models_state = gr.State([])
     presets_state = gr.State({})
 
     with gr.Row():
         with gr.Column(scale=1, min_width=460):
-            gr.Markdown("### Base Settings")
+            gr.Markdown("### Base")
             theme = gr.Textbox(label="Theme", value="A peaceful mountain meadow at dawn")
-            description = gr.Textbox(label="Description", lines=3, placeholder="Optional detailed description")
+            description = gr.Textbox(label="Description", lines=3, placeholder="Optional")
             duration = gr.Slider(10, 120, value=45, step=5, label="Duration (minutes)")
 
-            gr.Markdown("### Models & Presets")
-            gen_dd = gr.Dropdown(choices=[], label="Generator Model", allow_custom_value=True)
-            rsn_dd = gr.Dropdown(choices=[], label="Reasoner Model", allow_custom_value=True)
-            pol_dd = gr.Dropdown(choices=[], label="Polisher Model", allow_custom_value=True)
+            gr.Markdown("### Models")
+            gen_dd = gr.Dropdown(choices=[], label="Generator", allow_custom_value=True)
+            rsn_dd = gr.Dropdown(choices=[], label="Reasoner", allow_custom_value=True)
+            pol_dd = gr.Dropdown(choices=[], label="Polisher", allow_custom_value=True)
             preset_dd = gr.Dropdown(choices=[], label="Model Preset", allow_custom_value=False)
 
             def on_preset_change(preset_key, presets):
                 if not preset_key or not presets or preset_key not in presets:
                     return gr.update(), gr.update(), gr.update(), gr.update()
                 p = presets[preset_key]
-                return (gr.update(value=p.get("generator")), 
-                       gr.update(value=p.get("reasoner")), 
-                       gr.update(value=p.get("polisher")),
-                       gr.update(value=p.get("rotation", True)))  # AGGIUNTO controllo rotation
+                return gr.update(value=p.get("generator")), gr.update(value=p.get("reasoner")), gr.update(value=p.get("polisher")), gr.update(value=p.get("rotation", True))
 
+            preset_dd.change(on_preset_change, inputs=[preset_dd, presets_state], outputs=[gen_dd, rsn_dd, pol_dd, ])
+
+            gr.Markdown("### Quality & Output")
             use_reasoner = gr.Checkbox(label="Enable Reasoner", value=True)
             use_polish = gr.Checkbox(label="Enable Polisher", value=True)
-
-            gr.Markdown("### Quality & Output Settings")
             tts_markers = gr.Checkbox(label="Insert TTS markers", value=False)
             strict_schema = gr.Checkbox(label="Return strict JSON schema", value=False)
-            sensory_rotation = gr.Checkbox(label="Sensory rotation (sight→sound→touch...)", value=True)
-            sleep_taper = gr.Checkbox(label="Sleep taper (reduce density at end)", value=True)
-            rotation = gr.Checkbox(label="General rotation (separate from sensory)", value=True)  # AGGIUNTO
+            sensory_rotation = gr.Checkbox(label="Sensory rotation", value=True)
+            sleep_taper = gr.Checkbox(label="Sleep taper", value=True)
+            rotation = gr.Checkbox(label="Rotation (general)", value=True)
 
-            preset_dd.change(on_preset_change, inputs=[preset_dd, presets_state], outputs=[gen_dd, rsn_dd, pol_dd, rotation])
+            gr.Markdown("### Temperatures")
+            temp_gen = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Generator")
+            temp_rsn = gr.Slider(0.1, 1.5, value=0.3, step=0.05, label="Reasoner")
+            temp_pol = gr.Slider(0.1, 1.5, value=0.4, step=0.05, label="Polisher")
 
-            gr.Markdown("### Model Temperatures")
-            temp_gen = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Generator Temperature")
-            temp_rsn = gr.Slider(0.1, 1.5, value=0.3, step=0.05, label="Reasoner Temperature")
-            temp_pol = gr.Slider(0.1, 1.5, value=0.4, step=0.05, label="Polisher Temperature")
-
-            gr.Markdown("### Story Structure & Timing")
+            gr.Markdown("### Structure")
             beats = gr.Slider(0, 24, value=0, step=1, label="Beats (0 = backend default)")
             words_per_beat = gr.Slider(0, 800, value=0, step=50, label="Words per beat (0 = backend default)")
-            tolerance = gr.Slider(0.0, 0.5, value=0.0, step=0.05, label="Beat length tolerance (0 = backend default)")
-            taper_start_pct = gr.Slider(0.5, 0.95, value=0.8, step=0.05, label="Taper start percentage")
-            taper_reduction = gr.Slider(0.3, 0.9, value=0.7, step=0.05, label="Taper reduction factor")
+            tolerance = gr.Slider(0.0, 0.5, value=0.0, step=0.05, label="Tolerance (0 = backend default)")
+            taper_start_pct = gr.Slider(0.5, 0.95, value=0.8, step=0.05, label="Taper start pct")
+            taper_reduction = gr.Slider(0.3, 0.9, value=0.7, step=0.05, label="Taper reduction")
 
-            gr.Markdown("### Spatial Waypoints & Journey")
-            custom_waypoints_text = gr.Textbox(
-                label="Custom spatial waypoints (one per line)", 
-                lines=4, 
-                placeholder="e.g.\nentry path\ngentle bend\nsmall clearing\nwooden bridge\nsoft moss hollow"
-            )
+            gr.Markdown("### Waypoints")
+            custom_waypoints_text = gr.Textbox(label="Custom waypoints (one per line)", lines=4, placeholder="e.g.\nentry path\ngentle bend\nsmall clearing")
 
-            run_btn = gr.Button("🎬 Generate Enhanced Story", variant="primary", size="lg")
+            gr.Markdown("### 🎤 TTS Advanced")
+            tts_pause_min = gr.Slider(0.1, 2.0, value=0.5, step=0.1, label="Pause min (s)")
+            tts_pause_max = gr.Slider(1.0, 5.0, value=3.0, step=0.1, label="Pause max (s)")
+            tts_breathe_frequency = gr.Slider(1, 10, value=4, step=1, label="Breathe frequency")
 
         with gr.Column(scale=1, min_width=520):
-            gr.Markdown("### Job Management & Sessions")
+            gr.Markdown("### Sessions")
             with gr.Row():
                 jobs_dd = gr.Dropdown(choices=[], label="Active/Recent Jobs", allow_custom_value=False)
-                refresh_jobs = gr.Button("↻ Refresh")
+                refresh_jobs = gr.Button("↻")
                 attach_btn = gr.Button("🔗 Attach")
             with gr.Row():
-                manual_id = gr.Textbox(label="Manual Job ID", placeholder="Enter job ID directly...")
-                attach_manual_btn = gr.Button("🔗 Attach Manual")
+                manual_id = gr.Textbox(label="Manual Job ID", placeholder="Enter job ID…")
+                attach_manual_btn = gr.Button("🔗 Attach manual")
 
-            gr.Markdown("### Generation Status & Progress")
-            status = gr.HTML(value="<div style='padding:16px;color:#6b7280;text-align:center'>Ready for enhanced story generation with all backend parameters.</div>")
-            
-            gr.Markdown("### Output Results")
+            gr.Markdown("### 🚶 Embodiment / Journey")
+            movement_verbs_required = gr.Slider(1, 5, value=1, step=1, label="Movement verbs required")
+            transition_tokens_required = gr.Slider(1, 5, value=1, step=1, label="Transition tokens required")
+            sensory_coupling = gr.Slider(1, 5, value=2, step=1, label="Sensory coupling")
+            downshift_required = gr.Checkbox(label="Downshift required", value=True)
+            pov_enforce_second_person = gr.Checkbox(label="Enforce 2nd person POV", value=True)
+
+            gr.Markdown("### 🏡 Destination Architecture")
+            destination_promise_beat = gr.Slider(1, 5, value=1, step=1, label="Destination promise beat")
+            arrival_signals_start = gr.Slider(0.3, 0.95, value=0.7, step=0.05, label="Arrival signals start (fraction)")
+            settlement_beats = gr.Slider(1, 5, value=2, step=1, label="Settlement beats")
+            closure_required = gr.Checkbox(label="Closure required", value=True)
+            destination_archetype = gr.Dropdown(choices=["safe_shelter","peaceful_vista","restorative_water","sacred_space"], value="safe_shelter", label="Destination archetype")
+
+            gr.Markdown("### 🧭 Spatial Coach Agent")
+            enable_spatial_coach = gr.Checkbox(label="Enable Spatial Coach", value=False)
+            spatial_coach_model = gr.Dropdown(choices=[], label="Spatial coach model (default reasoner)", allow_custom_value=True)
+            spatial_coach_temperature = gr.Slider(0.1, 1.0, value=0.2, step=0.05, label="Coach temperature")
+            spatial_coach_max_tokens = gr.Slider(50, 300, value=150, step=10, label="Coach max tokens")
+
+            gr.Markdown("### ⚡ Quality & Planning")
+            opener_penalty_threshold = gr.Slider(1, 10, value=3, step=1, label="Opener penalty threshold")
+            transition_penalty_weight = gr.Slider(0.1, 1.0, value=0.3, step=0.05, label="Transition penalty weight")
+            redundancy_penalty_weight = gr.Slider(0.1, 1.0, value=0.2, step=0.05, label="Redundancy penalty weight")
+            beat_planning_enabled = gr.Checkbox(label="Beat planning enabled", value=True)
+            beat_length_tolerance = gr.Slider(0.05, 0.25, value=0.10, step=0.01, label="Beat length tolerance")
+
+            gr.Markdown("### 💾 Performance & VRAM")
+            max_concurrent_models = gr.Slider(1, 3, value=1, step=1, label="Max concurrent models")
+            model_unload_delay = gr.Slider(0.5, 10.0, value=2.0, step=0.5, label="Model unload delay (s)")
+            max_retries = gr.Slider(1, 10, value=3, step=1, label="Max retries")
+            retry_delay = gr.Slider(0.5, 5.0, value=1.0, step=0.5, label="Retry delay (s)")
+            fallback_model = gr.Textbox(label="Fallback model", value="qwen3:8b")
+
+            gr.Markdown("### Status & Outputs")
+            status = gr.HTML(value="<div style='padding:16px;color:#6b7280'>Ready.</div>")
             with gr.Tabs():
-                with gr.Tab("📖 Story Text"):
-                    story = gr.Textbox(lines=18, show_copy_button=True, placeholder="Generated story will appear here...")
-                with gr.Tab("📊 Generation Metrics"):
-                    metrics = gr.Textbox(lines=12, show_copy_button=True, placeholder="Detailed generation metrics and statistics...")
-                with gr.Tab("🔧 Beats Schema"):
-                    schema = gr.Textbox(lines=12, show_copy_button=True, placeholder="Structured beats schema (if strict_schema enabled)...")
+                with gr.Tab("Story"):
+                    story = gr.Textbox(lines=18, show_copy_button=True)
+                with gr.Tab("Metrics"):
+                    metrics = gr.Textbox(lines=12, show_copy_button=True)
+                with gr.Tab("Schema"):
+                    schema = gr.Textbox(lines=12, show_copy_button=True)
 
-    # Load presets/models/jobs on app initialization
+    # Load presets/models/jobs on app load
     def init_load():
         models = load_ollama_models()
         presets = load_presets()
@@ -432,28 +562,49 @@ with gr.Blocks(title="Sleep Stories — Enhanced UI", theme=gr.themes.Soft()) as
         return (models, presets,
                 gr.update(choices=models), gr.update(choices=models), gr.update(choices=models),
                 gr.update(choices=list(presets.keys())),
+                gr.update(choices=models),  # coach model dropdown
                 gr.update(choices=jobs, value=None))
 
-    demo.load(init_load, inputs=None, outputs=[models_state, presets_state, gen_dd, rsn_dd, pol_dd, preset_dd, jobs_dd])
+    demo.load(init_load, inputs=None, outputs=[models_state, presets_state, gen_dd, rsn_dd, pol_dd, preset_dd, spatial_coach_model, jobs_dd])
 
     def refresh_jobs_only():
         return gr.update(choices=load_jobs_labels(), value=None)
 
     refresh_jobs.click(refresh_jobs_only, None, [jobs_dd])
 
-    # AGGIORNATO: aggiunto rotation agli inputs
+    run_btn = gr.Button("🎬 Generate", variant="primary")
+
     run_btn.click(
         start_and_stream,
         inputs=[
+            # Base
             theme, description, duration,
+            # Processing
             use_reasoner, use_polish,
+            # Output
             tts_markers, strict_schema,
-            sensory_rotation, sleep_taper, rotation,  # AGGIUNTO rotation
+            sensory_rotation, sleep_taper, rotation,
+            # Models
             gen_dd, rsn_dd, pol_dd,
+            # Temperatures
             temp_gen, temp_rsn, temp_pol,
+            # Structure
             beats, words_per_beat, tolerance,
             taper_start_pct, taper_reduction,
-            custom_waypoints_text
+            # Waypoints
+            custom_waypoints_text,
+            # TTS Advanced
+            tts_pause_min, tts_pause_max, tts_breathe_frequency,
+            # Journey
+            movement_verbs_required, transition_tokens_required, sensory_coupling, downshift_required, pov_enforce_second_person,
+            # Destination
+            destination_promise_beat, arrival_signals_start, settlement_beats, closure_required, destination_archetype,
+            # Spatial Coach
+            enable_spatial_coach, spatial_coach_model, spatial_coach_temperature, spatial_coach_max_tokens,
+            # Quality
+            opener_penalty_threshold, transition_penalty_weight, redundancy_penalty_weight, beat_planning_enabled, beat_length_tolerance,
+            # Performance
+            max_concurrent_models, model_unload_delay, max_retries, retry_delay, fallback_model
         ],
         outputs=[status, story, metrics, schema],
         concurrency_id="generate", concurrency_limit=1
