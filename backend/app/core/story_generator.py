@@ -179,27 +179,62 @@ class StoryGenerator:
         update(100, '✅ Enhanced generation complete!', 8)
         return result
 
-    def _extract_beats_from_result(self, enhanced_result: Dict[str, Any]) -> List[Dict[str, Any]]:
-        beats_schema = enhanced_result.get("beats_schema", {})
-        if isinstance(beats_schema, dict) and "beats" in beats_schema:
-            # If schema exists, use it
-            return [{"text": b.get("text", "")} for b in beats_schema.get("beats", [])]
-        # Fallback: split story text heuristically (not ideal)
-        text = enhanced_result.get("story_text", "")
-        parts = [p.strip() for p in re.split(r"\n\n+", text) if p.strip()]
-        return [{"text": p} for p in parts]
+    # --- Missing methods reintroduced ---
+    async def _analyze_theme_enhanced(self, theme: str, description: Optional[str]) -> Dict[str, Any]:
+        prompt = THEME_ANALYSIS_PROMPT.format(theme=theme, description=description or 'None')
+        # Offload blocking call
+        def _call():
+            r = self.client.generate(model=self.orchestrator.generator_name, prompt=prompt, options={'temperature': 0.7, 'num_predict': 800})
+            return r.get('response','')
+        text = await asyncio.to_thread(_call)
+        json_text = self._extract_json(text)
+        try:
+            data = json.loads(json_text) if json_text else {}
+            if 'spatial_waypoints' not in data:
+                data['spatial_waypoints'] = ['entry path','gentle bend','small clearing','wooden bridge','soft moss hollow']
+            return data
+        except Exception:
+            return {"setting": theme, "sensory_elements": ["sight","sound"], "spatial_waypoints": ['entry path','gentle bend','small clearing','wooden bridge','soft moss hollow']}
 
-    def _setup_destination_promise(self, theme: Dict, outline: Dict) -> Dict:
-        archetypes = getattr(settings, 'DESTINATION_ARCHETYPES', {
-            'safe_shelter': ['cottage','cabin','sanctuary','grove'],
-            'peaceful_vista': ['meadow','clearing','overlook','garden'],
-            'restorative_water': ['pool','stream','cove','spring'],
-            'sacred_space': ['temple','circle','altar','threshold']
-        })
-        # Simple heuristic choose
-        chosen = list(archetypes.values())[0][0]
-        return {
-            "name": chosen,
-            "promise": "luogo sicuro e morbido dove riposare",
-            "appeal": "calore, protezione, quiete"
-        }
+    async def _generate_outline_enhanced(self, enriched_theme: Dict[str, Any], duration: int, custom_waypoints: Optional[List[str]]) -> Dict[str, Any]:
+        target_words = duration * settings.TARGET_WPM
+        waypoints = custom_waypoints or enriched_theme.get('spatial_waypoints', [])
+        prompt = OUTLINE_GENERATION_PROMPT.format(theme=json.dumps(enriched_theme), duration=duration, target_words=target_words, beats=settings.BEATS_PER_STORY)
+        def _call():
+            r = self.client.generate(model=self.orchestrator.generator_name, prompt=prompt, options={'temperature': 0.6, 'num_predict': settings.MAX_TOKENS_OUTLINE})
+            return r.get('response','')
+        text = await asyncio.to_thread(_call)
+        json_text = self._extract_json(text)
+        try:
+            outline = json.loads(json_text) if json_text else {}
+            return outline or {"story_bible": {"setting": enriched_theme.get('setting','')}, "acts": []}
+        except Exception:
+            return {"story_bible": {"setting": enriched_theme.get('setting','')}, "acts": []}
+
+    def _create_base_prompt(self, enriched_theme: Dict, outline: Dict) -> str:
+        return f"Generate a soothing sleep story based on this enhanced theme and outline.\n\nENRICHED THEME:\n{json.dumps(enriched_theme, indent=2)}\n\nSTORY OUTLINE:\n{json.dumps(outline, indent=2)}\n\nCreate a calming, immersive narrative that guides the listener toward sleep. Focus on gentle pacing, vivid but peaceful imagery, smooth transitions."
+
+    def _final_polish(self, story: str) -> str:
+        lines = [line.strip() for line in story.split('\n') if line.strip()]
+        polished = '\n\n'.join(lines)
+        polished = re.sub(r'\[PAUSE:\d+\.\d+\]', '', polished)
+        polished = re.sub(r'\[BREATHE\]', '', polished)
+        return polished
+
+    def _extract_json(self, text: str) -> str:
+        json_marker = '```json'
+        code_marker = '```'
+        if json_marker in text:
+            start = text.find(json_marker) + len(json_marker)
+            end = text.find(code_marker, start)
+            if end > start:
+                return text[start:end].strip()
+        if code_marker in text:
+            start = text.find(code_marker) + len(code_marker)
+            end = text.find(code_marker, start)
+            if end > start:
+                candidate = text[start:end].strip()
+                if candidate.startswith('{'):
+                    return candidate
+        m = re.search(r'\{[\s\S]*\}', text)
+        return m.group(0) if m else '{}'
