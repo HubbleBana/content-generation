@@ -18,7 +18,7 @@ async def list_ollama_models() -> List[OllamaModel]:
     """List locally available Ollama models by querying Ollama daemon.
     Uses OLLAMA_URL env from config, falls back to http://localhost:11434.
     """
-    base = settings.OLLAMA_URL or "http://localhost:11434"
+    base = settings.OLLAMA_URL or "http://ollama:11434"
     url = f"{base.rstrip('/')}/api/tags"
     try:
         async with httpx.AsyncClient(timeout=10) as client:

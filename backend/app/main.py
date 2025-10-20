@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 
-from app.api import routes
+from app.api import api_router
 from app.core.config import settings
 
 # Setup simple logging (no structlog for now)
@@ -69,7 +69,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(routes.router, prefix="/api")
+app.include_router(api_router, prefix="/api")
 
 @app.get("/")
 async def root():

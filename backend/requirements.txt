@@ -4,6 +4,6 @@ requests==2.31.0
 aiofiles==23.2.1
 pydantic==2.5.0
 python-multipart==0.0.6
-ollama==0.6.0
+ollama==0.3.3
 structlog
 numpy
