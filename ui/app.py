@@ -4,6 +4,7 @@ Completely rewritten frontend with real-time streaming, enhanced UI,
 and comprehensive parameter control for the Sleep Stories AI system.
 
 By Jimmy - Frontend Expert
+Updated for Gradio 4.44+ compatibility
 """
 
 import gradio as gr
@@ -393,61 +394,73 @@ def create_interface():
             settlement_beats, archetype
         ]
         
-        # Event handlers
+        # Event handlers with Gradio 4.44+ compatible parameters
         
-        # Generation
+        # Generation - GPU intensive, limit to 1 concurrent
         generate_btn.click(
             fn=start_generation,
             inputs=generation_inputs,
             outputs=generation_outputs,
-            concurrency_limit=2
+            concurrency_limit=1,
+            concurrency_id="gpu_generation"  # Share queue with other GPU operations
         )
         
-        # Attach to job
+        # Attach to job - Monitoring only, can have more concurrent
         attach_job_btn.click(
             fn=attach_to_job,
             inputs=[active_jobs_dropdown],
             outputs=generation_outputs,
-            concurrency_limit=3
+            concurrency_limit=3,
+            concurrency_id="job_monitoring"  # Separate queue for monitoring
         )
         
-        # Clear outputs
+        # Clear outputs - No concurrency limit needed
         clear_btn.click(
             fn=clear_all_outputs,
             inputs=None,
             outputs=generation_outputs
         )
         
-        # Refresh functions
+        # Refresh functions - Light API calls, higher concurrency
         refresh_models_btn.click(
             fn=refresh_models,
             inputs=None,
-            outputs=[generator_model]
+            outputs=[generator_model],
+            concurrency_limit=5,
+            concurrency_id="api_calls"
         )
         
         refresh_jobs_btn.click(
             fn=refresh_jobs,
             inputs=[show_completed],
-            outputs=[active_jobs_dropdown]
+            outputs=[active_jobs_dropdown],
+            concurrency_limit=5,
+            concurrency_id="api_calls"
         )
         
         refresh_system_btn.click(
             fn=get_system_info,
             inputs=None,
-            outputs=[system_status]
+            outputs=[system_status],
+            concurrency_limit=5,
+            concurrency_id="api_calls"
         )
         
         health_check_btn.click(
             fn=lambda: api_client.get_health(),
             inputs=None,
-            outputs=[system_status]
+            outputs=[system_status],
+            concurrency_limit=5,
+            concurrency_id="api_calls"
         )
         
         # Auto-refresh jobs when checkbox changes
         show_completed.change(
             fn=refresh_jobs,
             inputs=[show_completed],
-            outputs=[active_jobs_dropdown]
+            outputs=[active_jobs_dropdown],
+            concurrency_limit=5,
+            concurrency_id="api_calls"
         )
         
         # Load initial data
@@ -464,7 +477,7 @@ def create_interface():
     return demo
 
 if __name__ == "__main__":
-    logger.info("Starting Sleep Stories AI - Enhanced Frontend v2.0")
+    logger.info("Starting Sleep Stories AI - Enhanced Frontend v2.0 (Gradio 4.44+ Compatible)")
     
     # Start auto-refresh worker
     refresh_thread = threading.Thread(target=auto_refresh_jobs_worker, daemon=True)
@@ -473,9 +486,13 @@ if __name__ == "__main__":
     # Create and launch interface
     demo = create_interface()
     
+    # Gradio 4.44+ compatible queue configuration
+    # Reference: https://www.gradio.app/4.44.1/guides/queuing
+    # Reference: https://www.gradio.app/4.44.1/guides/setting-up-a-demo-for-maximum-performance
     demo.queue(
-        concurrency_count=5,
-        max_size=20
+        default_concurrency_limit=1,  # Default limit for events without explicit concurrency_limit
+        max_size=20,                  # Maximum queue size
+        status_update_rate="auto"     # Auto-update rate for queue status
     )
     
     demo.launch(
@@ -483,7 +500,7 @@ if __name__ == "__main__":
         server_port=7860,
         show_error=True,
         debug=False,
-        max_threads=40,
+        max_threads=40,               # Total worker threads
         show_tips=False,
         quiet=False
     )
