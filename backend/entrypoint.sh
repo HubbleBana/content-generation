@@ -1,5 +1,6 @@
 #!/bin/sh
-# Entrypoint to run gunicorn with tuned settings from env
+# Ensure we are in /app
+cd /app
 
 : ${WEB_CONCURRENCY:=1}
 : ${GUNICORN_TIMEOUT:=1800}
