@@ -1,0 +1,313 @@
+/* Sleep Stories AI - Custom Styles */
+
+/* Main container styling */
+.gradio-container {
+    font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    min-height: 100vh;
+}
+
+/* Card styling for main sections */
+.block {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    margin: 8px 0 !important;
+    padding: 16px !important;
+}
+
+/* Header styling */
+h1, .gr-markdown h1 {
+    color: #2d3748 !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    margin-bottom: 2rem !important;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+h2, .gr-markdown h2,
+h3, .gr-markdown h3 {
+    color: #4a5568 !important;
+    font-weight: 600 !important;
+    margin-bottom: 1rem !important;
+}
+
+/* Button styling */
+.gr-button {
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+    border: none !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.gr-button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Primary button */
+.gr-button-primary {
+    background: linear-gradient(45deg, #667eea, #764ba2) !important;
+    color: white !important;
+}
+
+.gr-button-primary:hover {
+    background: linear-gradient(45deg, #5a6fd8, #6a4190) !important;
+}
+
+/* Secondary button */
+.gr-button-secondary {
+    background: linear-gradient(45deg, #f093fb, #f5576c) !important;
+    color: white !important;
+}
+
+.gr-button-secondary:hover {
+    background: linear-gradient(45deg, #ed7de8, #f04658) !important;
+}
+
+/* Input styling */
+.gr-textbox,
+.gr-dropdown,
+.gr-number,
+.gr-slider {
+    border-radius: 8px !important;
+    border: 2px solid #e2e8f0 !important;
+    transition: border-color 0.2s ease !important;
+}
+
+.gr-textbox:focus,
+.gr-dropdown:focus,
+.gr-number:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+}
+
+/* Status display styling */
+.status-display {
+    background: #1a202c !important;
+    color: #e2e8f0 !important;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+}
+
+/* Progress indicators */
+.progress-container {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%) !important;
+    border-radius: 20px !important;
+    height: 8px !important;
+    overflow: hidden !important;
+}
+
+/* Tab styling */
+.tab-nav {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-radius: 8px 8px 0 0 !important;
+    border-bottom: 2px solid #e2e8f0 !important;
+}
+
+.tab-nav button {
+    color: #4a5568 !important;
+    font-weight: 500 !important;
+    padding: 12px 24px !important;
+    border-radius: 8px 8px 0 0 !important;
+    transition: all 0.2s ease !important;
+}
+
+.tab-nav button.selected {
+    background: linear-gradient(45deg, #667eea, #764ba2) !important;
+    color: white !important;
+}
+
+/* JSON display styling */
+.gr-json {
+    background: #f7fafc !important;
+    border: 2px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+}
+
+/* Accordion styling */
+.gr-accordion {
+    border: 2px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+}
+
+.gr-accordion summary {
+    background: linear-gradient(45deg, #f7fafc, #edf2f7) !important;
+    color: #2d3748 !important;
+    font-weight: 600 !important;
+    padding: 16px !important;
+    border-radius: 8px !important;
+    cursor: pointer !important;
+    transition: background 0.2s ease !important;
+}
+
+.gr-accordion summary:hover {
+    background: linear-gradient(45deg, #edf2f7, #e2e8f0) !important;
+}
+
+/* Checkbox styling */
+.gr-checkbox {
+    accent-color: #667eea !important;
+}
+
+/* Slider styling */
+.gr-slider input[type="range"] {
+    accent-color: #667eea !important;
+}
+
+/* Loading animation */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.loading {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Success/Error messages */
+.success-message {
+    color: #38a169 !important;
+    background: #f0fff4 !important;
+    border: 2px solid #9ae6b4 !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    margin: 8px 0 !important;
+}
+
+.error-message {
+    color: #e53e3e !important;
+    background: #fff5f5 !important;
+    border: 2px solid #fc8181 !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    margin: 8px 0 !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .gradio-container {
+        padding: 8px !important;
+    }
+    
+    .block {
+        margin: 4px 0 !important;
+        padding: 12px !important;
+    }
+    
+    .gr-button {
+        padding: 8px 16px !important;
+        font-size: 14px !important;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .block {
+        background: rgba(26, 32, 44, 0.95) !important;
+        color: #e2e8f0 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+    
+    h1, .gr-markdown h1,
+    h2, .gr-markdown h2,
+    h3, .gr-markdown h3 {
+        color: #e2e8f0 !important;
+    }
+    
+    .gr-textbox,
+    .gr-dropdown,
+    .gr-number {
+        background: #2d3748 !important;
+        color: #e2e8f0 !important;
+        border-color: #4a5568 !important;
+    }
+    
+    .gr-json {
+        background: #2d3748 !important;
+        color: #e2e8f0 !important;
+        border-color: #4a5568 !important;
+    }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(45deg, #5a6fd8, #6a4190);
+}
+
+/* Animation for status updates */
+.status-update {
+    transition: all 0.3s ease;
+}
+
+.status-update.updated {
+    background: #f0fff4 !important;
+    border-left: 4px solid #38a169 !important;
+}
+
+/* Progress bar animations */
+@keyframes progressFill {
+    0% {
+        width: 0%;
+    }
+    100% {
+        width: var(--progress-width);
+    }
+}
+
+.progress-bar-fill {
+    animation: progressFill 0.5s ease-out;
+}
+
+/* Tooltip styling */
+.tooltip {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+}
+
+.tooltip .tooltip-text {
+    visibility: hidden;
+    width: 200px;
+    background-color: #2d3748;
+    color: #e2e8f0;
+    text-align: center;
+    border-radius: 6px;
+    padding: 8px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    margin-left: -100px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.tooltip:hover .tooltip-text {
+    visibility: visible;
+}
