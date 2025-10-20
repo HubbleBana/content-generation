@@ -26,9 +26,12 @@ class StoryGenerator:
                  use_reasoner: bool = True,
                  use_polish: bool = True,
                  tts_markers: bool = False,
-                 strict_schema: bool = False):
+                 strict_schema: bool = False,
+                 generation_params: Optional[dict] = None):
         
         self.client = ollama.Client(host=settings.OLLAMA_URL)
+        self.generation_params = generation_params or {}
+        
         self.orchestrator = EnhancedModelOrchestrator(
             generator=(models or {}).get('generator') if models else None,
             reasoner=(models or {}).get('reasoner') if models else None,
@@ -87,7 +90,8 @@ class StoryGenerator:
             "theme": enriched_theme,
             "outline": outline,
             "custom_waypoints": custom_waypoints,
-            "destination": destination_ctx
+            "destination": destination_ctx,
+            "generation_params": self.generation_params
         }
         
         enhanced_result = await self.orchestrator.generate_enhanced_story(
@@ -160,7 +164,8 @@ class StoryGenerator:
                     'reasoner': self.orchestrator.reasoner_name if self.orchestrator.use_reasoner else None,
                     'polisher': self.orchestrator.polisher_name if self.orchestrator.use_polish else None
                 },
-                'destination': destination_ctx
+                'destination': destination_ctx,
+                'generation_params': self.generation_params
             }
         }
         if self.strict_schema and enhanced_result.get("beats_schema"):
@@ -168,6 +173,57 @@ class StoryGenerator:
         
         update(100, '✅ Enhanced generation complete!', 8)
         return result
+
+    async def _reasoner_fix_beats(self, beats: List[Dict], missing_beats_idx: List[int], destination_ctx: Dict) -> List[Dict]:
+        """Fix embodiment and destination issues in specific beats using reasoner model"""
+        if not self.orchestrator.use_reasoner or not missing_beats_idx:
+            return beats
+        
+        fixed_beats = beats.copy()
+        
+        # Get generation parameters for enforcing rules
+        pov_enforce = self.generation_params.get('pov_enforce_second_person', settings.POV_ENFORCE_SECOND_PERSON)
+        movement_required = self.generation_params.get('movement_verbs_required', settings.MOVEMENT_VERBS_REQUIRED)
+        transition_required = self.generation_params.get('transition_tokens_required', settings.TRANSITION_TOKENS_REQUIRED)
+        downshift_required = self.generation_params.get('downshift_required', settings.DOWNSHIFT_REQUIRED)
+        
+        for idx in missing_beats_idx:
+            if idx < len(fixed_beats):
+                original_text = fixed_beats[idx].get("text", "")
+                
+                # Construct correction prompt with parameters
+                correction_prompt = f"""Fix embodiment and destination arc issues in this sleep story beat:
+
+ORIGINAL TEXT:
+{original_text}
+
+REQUIREMENTS:
+- POV: {'Enforce strict 2nd person present tense' if pov_enforce else 'Prefer 2nd person but allow flexibility'}
+- Movement: Include at least {movement_required} movement verb(s) (walk, move, approach, etc.)
+- Transitions: Add at least {transition_required} spatial transition(s) (beyond, through, toward, etc.)
+- Downshift: {'Include relaxation cues (breath slows, shoulders ease)' if downshift_required else 'Optional relaxation elements'}
+- Maintain destination promise: {destination_ctx.get('promise', 'peaceful rest')}
+- Keep soothing, sleep-inducing tone
+- Target sensory coupling: {self.generation_params.get('sensory_coupling', settings.SENSORY_COUPLING)} sensory elements
+
+CORRECTED VERSION:"""
+
+                try:
+                    def _call():
+                        return self.client.generate(
+                            model=self.orchestrator.reasoner_name,
+                            prompt=correction_prompt,
+                            options={"temperature": 0.3, "num_predict": 300}
+                        ).get('response', original_text)
+                    
+                    corrected = await asyncio.to_thread(_call)
+                    if corrected and len(corrected.split()) > 20:
+                        fixed_beats[idx]["text"] = corrected.strip()
+                        logger.info(f"Fixed embodiment issues in beat {idx}")
+                except Exception as e:
+                    logger.warning(f"Failed to fix beat {idx}: {e}")
+        
+        return fixed_beats
 
     # Helpers restored
     def _extract_beats_from_result(self, enhanced_result: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -179,7 +235,14 @@ class StoryGenerator:
         return [{"text": p} for p in parts] or [{"text": text}]
 
     async def _analyze_theme_enhanced(self, theme: str, description: Optional[str]) -> Dict[str, Any]:
-        prompt = THEME_ANALYSIS_PROMPT.format(theme=theme, description=description or 'None')
+        # Include generation parameters in analysis
+        prompt = THEME_ANALYSIS_PROMPT.format(
+            theme=theme, 
+            description=description or 'None',
+            pov_mode='second_person' if self.generation_params.get('pov_enforce_second_person', settings.POV_ENFORCE_SECOND_PERSON) else 'flexible',
+            sensory_coupling=self.generation_params.get('sensory_coupling', settings.SENSORY_COUPLING),
+            movement_style='embodied_journey' if self.generation_params.get('movement_verbs_required', settings.MOVEMENT_VERBS_REQUIRED) > 0 else 'gentle_flow'
+        )
         def _call():
             r = self.client.generate(model=self.orchestrator.generator_name, prompt=prompt, options={'temperature': 0.7, 'num_predict': 800})
             return r.get('response','')
@@ -195,7 +258,18 @@ class StoryGenerator:
 
     async def _generate_outline_enhanced(self, enriched_theme: Dict[str, Any], duration: int, custom_waypoints: Optional[List[str]]) -> Dict[str, Any]:
         target_words = duration * settings.TARGET_WPM
-        prompt = OUTLINE_GENERATION_PROMPT.format(theme=json.dumps(enriched_theme), duration=duration, target_words=target_words, beats=settings.BEATS_PER_STORY)
+        
+        # Include generation parameters in outline
+        prompt = OUTLINE_GENERATION_PROMPT.format(
+            theme=json.dumps(enriched_theme), 
+            duration=duration, 
+            target_words=target_words, 
+            beats=settings.BEATS_PER_STORY,
+            pov_enforce=self.generation_params.get('pov_enforce_second_person', settings.POV_ENFORCE_SECOND_PERSON),
+            embodiment_level=self.generation_params.get('movement_verbs_required', settings.MOVEMENT_VERBS_REQUIRED),
+            sensory_coupling=self.generation_params.get('sensory_coupling', settings.SENSORY_COUPLING),
+            destination_required=self.generation_params.get('closure_required', settings.CLOSURE_REQUIRED)
+        )
         def _call():
             r = self.client.generate(model=self.orchestrator.generator_name, prompt=prompt, options={'temperature': 0.6, 'num_predict': settings.MAX_TOKENS_OUTLINE})
             return r.get('response','')
@@ -208,7 +282,35 @@ class StoryGenerator:
             return {"story_bible": {"setting": enriched_theme.get('setting','')}, "acts": []}
 
     def _create_base_prompt(self, enriched_theme: Dict, outline: Dict) -> str:
-        return f"Generate a soothing sleep story based on this enhanced theme and outline.\n\nENRICHED THEME:\n{json.dumps(enriched_theme, indent=2)}\n\nSTORY OUTLINE:\n{json.dumps(outline, indent=2)}\n\nCreate a calming, immersive narrative that guides the listener toward sleep. Focus on gentle pacing, vivid but peaceful imagery, smooth transitions."
+        # Include generation parameters in base prompt
+        param_instructions = []
+        
+        if self.generation_params.get('pov_enforce_second_person', settings.POV_ENFORCE_SECOND_PERSON):
+            param_instructions.append("Maintain strict second person present tense throughout.")
+        
+        if self.generation_params.get('movement_verbs_required', settings.MOVEMENT_VERBS_REQUIRED) > 0:
+            param_instructions.append(f"Include at least {self.generation_params.get('movement_verbs_required', settings.MOVEMENT_VERBS_REQUIRED)} movement verb(s) per beat for embodied journey.")
+        
+        if self.generation_params.get('sensory_coupling', settings.SENSORY_COUPLING) > 1:
+            param_instructions.append(f"Couple at least {self.generation_params.get('sensory_coupling', settings.SENSORY_COUPLING)} sensory elements per beat.")
+        
+        if self.generation_params.get('tts_optimized', False):
+            param_instructions.append("Optimize pacing and pauses for text-to-speech synthesis.")
+        
+        param_text = "\n".join(param_instructions) if param_instructions else "Follow natural storytelling flow."
+        
+        return f"""Generate a soothing sleep story based on this enhanced theme and outline.
+
+ENRICHED THEME:
+{json.dumps(enriched_theme, indent=2)}
+
+STORY OUTLINE:
+{json.dumps(outline, indent=2)}
+
+GENERATION PARAMETERS:
+{param_text}
+
+Create a calming, immersive narrative that guides the listener toward sleep. Focus on gentle pacing, vivid but peaceful imagery, smooth transitions."""
 
     def _final_polish(self, story: str) -> str:
         lines = [line.strip() for line in story.split('\n') if line.strip()]
