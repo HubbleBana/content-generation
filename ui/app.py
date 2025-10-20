@@ -68,7 +68,7 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         total_steps = st.get("total_steps", 8)
         elapsed = str(timedelta(seconds=int(time.time()-start_time)))[2:7]
         bar = f"[{'🟩'*int(progress/2.5)}{'⬜'*(40-int(progress/2.5))}] {progress:.1f}%"
-        status_text = f"""🚀 Sleep Stories AI — v3.4
+        status_text = f"""🚀 Sleep Stories AI — v3.5
 Job: {job_id}\nElapsed: {elapsed}
 Step {step_num}/{total_steps}: {step}
 {bar}
@@ -142,8 +142,8 @@ Step {step_num}/{total_steps}: {step}
 
 # --- UI ---
 
-with gr.Blocks(title="Sleep Stories AI — v3.4", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌙 Sleep Stories AI — v3.4")
+with gr.Blocks(title="Sleep Stories AI — v3.5", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🌙 Sleep Stories AI — v3.5")
 
     with gr.Row():
         with gr.Column(scale=1, min_width=460):
@@ -154,9 +154,9 @@ with gr.Blocks(title="Sleep Stories AI — v3.4", theme=gr.themes.Soft()) as dem
 
             gr.Markdown("### 🤖 Models")
             use_custom = gr.Checkbox(label="Override models manually", value=False)
-            gen = gr.Dropdown(choices=[], label="Generator", allow_custom_value=True)
-            rsn = gr.Dropdown(choices=[], label="Reasoner", allow_custom_value=True)
-            pol = gr.Dropdown(choices=[], label="Polisher", allow_custom_value=True)
+            gen = gr.Dropdown(choices=[], value=None, label="Generator", allow_custom_value=True)
+            rsn = gr.Dropdown(choices=[], value=None, label="Reasoner", allow_custom_value=True)
+            pol = gr.Dropdown(choices=[], value=None, label="Polisher", allow_custom_value=True)
             refresh_models = gr.Button("↻ Refresh models", size="sm")
             use_reasoner = gr.Checkbox(label="Enable Reasoner", value=True)
             use_polisher = gr.Checkbox(label="Enable Polisher", value=True)
@@ -188,7 +188,7 @@ with gr.Blocks(title="Sleep Stories AI — v3.4", theme=gr.themes.Soft()) as dem
         with gr.Column(scale=2, min_width=640):
             gr.Markdown("### 🔗 Active Session")
             with gr.Row():
-                active_jobs = gr.Dropdown(label="Active Jobs (Resume)", choices=[], allow_custom_value=False)
+                active_jobs = gr.Dropdown(label="Active Jobs (Resume)", choices=[], value=None, allow_custom_value=False)
                 refresh_jobs = gr.Button("↻", size="sm")
                 attach_btn = gr.Button("🔗 Attach", variant="secondary")
             current_job = gr.Textbox(label="Current Job ID", interactive=False)
@@ -215,18 +215,18 @@ with gr.Blocks(title="Sleep Stories AI — v3.4", theme=gr.themes.Soft()) as dem
         job_labels = build_job_labels(jobs)
         models = fetch_json(f"{API_URL}/models/ollama", timeout=15) or []
         names = [m.get('name','') for m in models if isinstance(m, dict)]
-        return [gr.update(choices=job_labels), gr.update(choices=names), gr.update(choices=names), gr.update(choices=names)]
+        return [gr.update(choices=job_labels, value=None), gr.update(choices=names, value=None), gr.update(choices=names, value=None), gr.update(choices=names, value=None)]
 
     demo.load(on_load, inputs=None, outputs=[active_jobs, gen, rsn, pol])
 
     refresh_jobs.click(
-        fn=lambda: [gr.update(choices=build_job_labels(fetch_json(f"{API_URL}/jobs", 15) or {"jobs": []}))],
+        fn=lambda: [gr.update(choices=build_job_labels(fetch_json(f"{API_URL}/jobs", 15) or {"jobs": []}), value=None)],
         inputs=None,
         outputs=[active_jobs]
     )
 
     refresh_models.click(
-        fn=lambda: [gr.update(choices=[m.get('name','') for m in (fetch_json(f"{API_URL}/models/ollama", 15) or []) if isinstance(m, dict)])],
+        fn=lambda: [gr.update(choices=[m.get('name','') for m in (fetch_json(f"{API_URL}/models/ollama", 15) or []) if isinstance(m, dict)], value=None)],
         inputs=None,
         outputs=[gen]
     )
@@ -272,7 +272,6 @@ with gr.Blocks(title="Sleep Stories AI — v3.4", theme=gr.themes.Soft()) as dem
 
     def run_generate(*args):
         payload = pack_payload(*args)
-        # Start & stream, capture job id from first yield
         gen_it = start_and_stream(payload)
         first = next(gen_it)
         status_txt, story, metrics, outline, schema = first
@@ -282,9 +281,9 @@ with gr.Blocks(title="Sleep Stories AI — v3.4", theme=gr.themes.Soft()) as dem
                 job_id = status_txt.split("Job: ",1)[1].split("\n",1)[0].strip()
             except Exception:
                 job_id = ""
+        # update current job id
+        current_job.update(job_id)
         yield (status_txt, story, metrics, outline, schema)
-        # Update current job id box
-        yield (None, None, None, None, None)  # placeholder; separate event not supported here
         for update in gen_it:
             yield update
 
