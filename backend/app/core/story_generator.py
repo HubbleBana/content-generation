@@ -10,7 +10,7 @@ from app.core.memory_system import MemorySystem
 from app.core.coherence_system import CoherenceSystem
 from app.core.narrative_controller import NarrativeController
 from app.core.model_orchestrator import EnhancedModelOrchestrator
-from app.core.prompts import THEME_ANALYSIS_PROMPT, OUTLINE_GENERATION_PROMPT, BEAT_GENERATION_PROMPT, REASONER_EMBODIMENT_CHECKLIST, REASONER_DESTINATION_CHECKLIST
+from app.core.prompts import THEME_ANALYSIS_PROMPT, OUTLINE_GENERATION_PROMPT
 from app.core.embodiment_destination_validators import EmbodimentValidator, DestinationValidator
 
 import logging
@@ -30,9 +30,9 @@ class StoryGenerator:
         
         self.client = ollama.Client(host=settings.OLLAMA_URL)
         self.orchestrator = EnhancedModelOrchestrator(
-            generator=models.get('generator') if models else None,
-            reasoner=models.get('reasoner') if models else None,
-            polisher=models.get('polisher') if models else None,
+            generator=(models or {}).get('generator') if models else None,
+            reasoner=(models or {}).get('reasoner') if models else None,
+            polisher=(models or {}).get('polisher') if models else None,
             use_reasoner=use_reasoner,
             use_polish=use_polish,
             tts_markers=tts_markers,
@@ -42,7 +42,6 @@ class StoryGenerator:
         self.tts_markers = tts_markers
         self.strict_schema = strict_schema
         
-        # New validators
         self.embodiment_validator = EmbodimentValidator()
         self.destination_validator = DestinationValidator()
         
@@ -55,7 +54,6 @@ class StoryGenerator:
                                     job_id: Optional[str] = None,
                                     update_callback: Optional[Callable] = None,
                                     custom_waypoints: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Enhanced story generation with embodiment + destination architecture."""
         start_time = datetime.now()
         
         def update(progress: float, step: str, step_num: int = 0, stage_metrics=None):
@@ -76,7 +74,7 @@ class StoryGenerator:
         self.coherence_system.initialize_story_bible(outline.get('story_bible', {}))
         
         acts = outline.get('acts', [])
-        total_beats = sum(len(act.get('beats', [])) for act in acts)
+        total_beats = sum(len(act.get('beats', [])) for act in acts) or settings.BEATS_PER_STORY
         target_words_total = duration * settings.TARGET_WPM
         controller = NarrativeController(total_beats=total_beats, target_words_total=target_words_total)
         
@@ -92,7 +90,6 @@ class StoryGenerator:
             "destination": destination_ctx
         }
         
-        # Use orchestrator to generate beats with movement/destination scaffolding
         enhanced_result = await self.orchestrator.generate_enhanced_story(
             prompt=self._create_base_prompt(enriched_theme, outline),
             beats_target=total_beats,
@@ -172,7 +169,15 @@ class StoryGenerator:
         update(100, '✅ Enhanced generation complete!', 8)
         return result
 
-    # --- Missing methods reintroduced ---
+    # Helpers restored
+    def _extract_beats_from_result(self, enhanced_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        beats_schema = enhanced_result.get("beats_schema", {})
+        if isinstance(beats_schema, dict) and "beats" in beats_schema:
+            return [{"text": b.get("text", "")} for b in beats_schema.get("beats", [])]
+        text = enhanced_result.get("story_text", "")
+        parts = [p.strip() for p in re.split(r"\n\n+", text) if p.strip()]
+        return [{"text": p} for p in parts] or [{"text": text}]
+
     async def _analyze_theme_enhanced(self, theme: str, description: Optional[str]) -> Dict[str, Any]:
         prompt = THEME_ANALYSIS_PROMPT.format(theme=theme, description=description or 'None')
         def _call():
@@ -190,7 +195,6 @@ class StoryGenerator:
 
     async def _generate_outline_enhanced(self, enriched_theme: Dict[str, Any], duration: int, custom_waypoints: Optional[List[str]]) -> Dict[str, Any]:
         target_words = duration * settings.TARGET_WPM
-        waypoints = custom_waypoints or enriched_theme.get('spatial_waypoints', [])
         prompt = OUTLINE_GENERATION_PROMPT.format(theme=json.dumps(enriched_theme), duration=duration, target_words=target_words, beats=settings.BEATS_PER_STORY)
         def _call():
             r = self.client.generate(model=self.orchestrator.generator_name, prompt=prompt, options={'temperature': 0.6, 'num_predict': settings.MAX_TOKENS_OUTLINE})
@@ -214,20 +218,17 @@ class StoryGenerator:
         return polished
 
     def _extract_json(self, text: str) -> str:
-        json_marker = '```json'
-        code_marker = '```'
+        json_marker = '```json'; code_marker = '```'
         if json_marker in text:
             start = text.find(json_marker) + len(json_marker)
             end = text.find(code_marker, start)
-            if end > start:
-                return text[start:end].strip()
+            if end > start: return text[start:end].strip()
         if code_marker in text:
             start = text.find(code_marker) + len(code_marker)
             end = text.find(code_marker, start)
             if end > start:
                 candidate = text[start:end].strip()
-                if candidate.startswith('{'):
-                    return candidate
+                if candidate.startswith('{'): return candidate
         m = re.search(r'\{[\s\S]*\}', text)
         return m.group(0) if m else '{}'
 
@@ -238,14 +239,9 @@ class StoryGenerator:
             'restorative_water': ['pool','stream','cove','spring'],
             'sacred_space': ['temple','circle','altar','threshold']
         })
-        # naive pick: first of first list
         try:
             first_key = next(iter(archetypes))
             name = archetypes[first_key][0]
         except Exception:
             name = 'grove'
-        return {
-            'name': name,
-            'promise': 'a safe, soft place to rest',
-            'appeal': 'warmth, protection, quiet'
-        }
+        return {'name': name, 'promise': 'a safe, soft place to rest', 'appeal': 'warmth, protection, quiet'}
