@@ -1,4 +1,7 @@
-"""Generation panel components for Sleep Stories AI."""
+"""Generation panel components for Sleep Stories AI.
+
+Updated for Gradio 4.44+ compatibility.
+"""
 
 import gradio as gr
 from typing import Dict, Any, List, Tuple, Optional
@@ -90,9 +93,12 @@ def create_model_settings() -> Tuple:
                 info="Refine style and flow"
             )
         
-        # Show/hide model config based on checkbox
+        # Show/hide model config based on checkbox - Gradio 4.44+ compatible
+        def toggle_model_config(show_models):
+            return gr.update(visible=show_models)
+        
         use_custom_models.change(
-            fn=lambda x: gr.update(visible=x),
+            fn=toggle_model_config,
             inputs=[use_custom_models],
             outputs=[model_config]
         )
@@ -262,6 +268,7 @@ def build_generation_payload(
     theme: str,
     description: str,
     duration: int,
+    preset: str,
     use_custom_models: bool,
     generator_model: str,
     reasoner_model: str,
@@ -302,9 +309,12 @@ def build_generation_payload(
     # Add custom models if specified
     if use_custom_models:
         models = {}
-        if generator_model: models["generator"] = generator_model
-        if reasoner_model: models["reasoner"] = reasoner_model
-        if polisher_model: models["polisher"] = polisher_model
+        if generator_model and generator_model.strip(): 
+            models["generator"] = generator_model.strip()
+        if reasoner_model and reasoner_model.strip(): 
+            models["reasoner"] = reasoner_model.strip()
+        if polisher_model and polisher_model.strip(): 
+            models["polisher"] = polisher_model.strip()
         
         if models:
             payload["models"] = models
