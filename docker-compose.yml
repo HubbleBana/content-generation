@@ -47,7 +47,7 @@ services:
       - BEAT_PLANNING_ENABLED=true
       - MAX_CONCURRENT_MODELS=1
       - MAX_RETRIES=3
-      - FALLBACK_MODEL=qwen2.5:7b
+      - FALLBACK_MODEL=qwen3:8b
       - OLLAMA_CONNECT_TIMEOUT=120  # Longer timeout for GPU startup
     deploy:
       resources:
