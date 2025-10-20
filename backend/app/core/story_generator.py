@@ -101,7 +101,6 @@ class StoryGenerator:
         )
         
         update(70, 'Validating embodiment and destination arc...', 5)
-        # Validate embodiment per beat and destination arc
         beats = self._extract_beats_from_result(enhanced_result)
         missing_beats_idx: List[int] = []
         for idx, beat in enumerate(beats):
@@ -110,14 +109,11 @@ class StoryGenerator:
                 missing_beats_idx.append(idx)
         dest_check = self.destination_validator.validate_destination_arc(beats)
         
-        # If issues and reasoner enabled, request targeted rewrites
         if (missing_beats_idx or not dest_check["ok"]) and self.orchestrator.use_reasoner:
             update(75, 'Applying embodiment/destination corrections...', 6)
             beats = await self._reasoner_fix_beats(beats, missing_beats_idx, destination_ctx)
-            # Recompute destination after fixes
             dest_check = self.destination_validator.validate_destination_arc(beats)
         
-        # Compile final story
         final_story_text = "\n\n".join([b.get("text", "") for b in beats])
         if not self.tts_markers and not self.strict_schema:
             final_story_text = self._final_polish(final_story_text)
@@ -130,10 +126,7 @@ class StoryGenerator:
         duration_estimate = round(english_word_count / settings.TARGET_WPM, 1)
         
         coherence_stats = enhanced_result.get("coherence_stats", {})
-        # Add embodiment/destination metrics
-        embodiment_scores = []
-        for b in beats:
-            embodiment_scores.append(self.embodiment_validator.validate_beat(b.get("text", ""))["score"])
+        embodiment_scores = [self.embodiment_validator.validate_beat(b.get("text", ""))["score"] for b in beats]
         coherence_stats.update({
             "embodiment_score_avg": sum(embodiment_scores)/max(1,len(embodiment_scores)),
             "destination_completion": dest_check["ok"],
@@ -182,7 +175,6 @@ class StoryGenerator:
     # --- Missing methods reintroduced ---
     async def _analyze_theme_enhanced(self, theme: str, description: Optional[str]) -> Dict[str, Any]:
         prompt = THEME_ANALYSIS_PROMPT.format(theme=theme, description=description or 'None')
-        # Offload blocking call
         def _call():
             r = self.client.generate(model=self.orchestrator.generator_name, prompt=prompt, options={'temperature': 0.7, 'num_predict': 800})
             return r.get('response','')
@@ -238,3 +230,22 @@ class StoryGenerator:
                     return candidate
         m = re.search(r'\{[\s\S]*\}', text)
         return m.group(0) if m else '{}'
+
+    def _setup_destination_promise(self, enriched_theme: Dict[str, Any], outline: Dict[str, Any]) -> Dict[str, Any]:
+        archetypes = getattr(settings, 'DESTINATION_ARCHETYPES', {
+            'safe_shelter': ['cottage','cabin','sanctuary','grove'],
+            'peaceful_vista': ['meadow','clearing','overlook','garden'],
+            'restorative_water': ['pool','stream','cove','spring'],
+            'sacred_space': ['temple','circle','altar','threshold']
+        })
+        # naive pick: first of first list
+        try:
+            first_key = next(iter(archetypes))
+            name = archetypes[first_key][0]
+        except Exception:
+            name = 'grove'
+        return {
+            'name': name,
+            'promise': 'a safe, soft place to rest',
+            'appeal': 'warmth, protection, quiet'
+        }
