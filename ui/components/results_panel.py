@@ -133,11 +133,11 @@ def create_results_tabs() -> Tuple:
         
         # Schema Tab (for video production)
         with gr.Tab("📝 Schema") as schema_tab:
+            # Removed show_copy_button for gr.JSON to ensure compatibility with installed Gradio
             beats_schema = gr.JSON(
                 label="Beats Schema (Video Production)",
                 value={},
-                container=True,
-                show_copy_button=True
+                container=True
             )
             
             with gr.Row():
