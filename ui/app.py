@@ -196,6 +196,7 @@ def render_params_html(params: Dict[str, Any]) -> str:
 
 def render_status_html(ev: Dict[str, Any]) -> str:
     status = ev.get("status", "processing")
+    status_upper = status.upper()
     progress = float(ev.get("progress", 0))
     step = ev.get("current_step", "processing...")
     step_num = ev.get("current_step_number", 0)
@@ -209,7 +210,6 @@ def render_status_html(ev: Dict[str, Any]) -> str:
 
     models = ev.get("models", {}) or {}
     temps = ev.get("temps", {}) or {}
-    quality = ev.get("quality", {}) or {}
     timing = ev.get("timing", {}) or {}
     params = ev.get("generation_params", {}) or {}
 
@@ -234,64 +234,64 @@ def render_status_html(ev: Dict[str, Any]) -> str:
     if bt > 0:
         beat_pct = (bi/max(bt,1))*100
         beat_section = f"""
-        <div style="margin-bottom:12px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <span style="font-weight:700;color:#374151">Overall Beat Progress</span>
-                <span style="background:#22c55e;color:white;padding:4px 8px;border-radius:12px;font-weight:700">{bi}/{bt}</span>
+        <div style=\"margin-bottom:12px\">
+            <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:6px\">
+                <span style=\"font-weight:700;color:#374151\">Overall Beat Progress</span>
+                <span style=\"background:#22c55e;color:white;padding:4px 8px;border-radius:12px;font-weight:700\">{bi}/{bt}</span>
             </div>
             {pb}
-            <div style="text-align:right;color:#22c55e;font-weight:600;margin-top:4px">{pct:.1f}%</div>
+            <div style=\"text-align:right;color:#22c55e;font-weight:600;margin-top:4px\">{pct:.1f}%</div>
         </div>
         """.replace("{pb}", progress_bar(beat_pct, "#22c55e")).replace("{pct}", f"{beat_pct}").replace("{bi}", str(bi)).replace("{bt}", str(bt))
         if bstage:
             beat_section += f"""
             <div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                    <span style="font-weight:700;color:#374151">Current Stage: {bstage_upper}</span>
-                    <span style="background:#3b82f6;color:white;padding:4px 8px;border-radius:12px;font-weight:700">{bstage_prog}%</span>
+                <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:6px\">
+                    <span style=\"font-weight:700;color:#374151\">Current Stage: {bstage_upper}</span>
+                    <span style=\"background:#3b82f6;color:white;padding:4px 8px;border-radius:12px;font-weight:700\">{bstage_prog}%</span>
                 </div>
                 {pb2}
             </div>
             """.replace("{bstage_upper}", bstage.upper()).replace("{bstage_prog}", str(bstage_prog)).replace("{pb2}", progress_bar(bstage_prog, "#3b82f6"))
 
     html = f"""
-    <div style="border:2px solid {color};border-radius:16px;padding:20px;margin:8px 0;background:linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)">
-        <div style="background:white;border:2px solid {color};border-radius:12px;padding:16px;margin-bottom:16px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <div style="font-size:20px;font-weight:800;color:{color}">{icon} {status_upper}</div>
-                <div style="background:{color};color:white;padding:6px 12px;border-radius:20px;font-weight:700">STEP {step_num}/{total_steps}</div>
+    <div style=\"border:2px solid {color};border-radius:16px;padding:20px;margin:8px 0;background:linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)\">
+        <div style=\"background:white;border:2px solid {color};border-radius:12px;padding:16px;margin-bottom:16px\">
+            <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:12px\">
+                <div style=\"font-size:20px;font-weight:800;color:{color}\">{icon} {status_upper}</div>
+                <div style=\"background:{color};color:white;padding:6px 12px;border-radius:20px;font-weight:700\">STEP {step_num}/{total_steps}</div>
             </div>
-            <div style="font-size:16px;margin-bottom:10px;color:#111827;font-weight:600">{step}</div>
+            <div style=\"font-size:16px;margin-bottom:10px;color:#111827;font-weight:600\">{step}</div>
             {pb_main}
-            <div style="text-align:right;color:{color};font-weight:700;margin-top:6px">{progress:.1f}%</div>
+            <div style=\"text-align:right;color:{color};font-weight:700;margin-top:6px\">{progress:.1f}%</div>
         </div>
 
-        <div style="background:white;border:2px solid #22c55e;border-radius:12px;padding:16px;margin-bottom:16px">
-            <div style="font-size:16px;font-weight:800;color:#22c55e;margin-bottom:10px;text-align:center">📊 BEAT TRACKER</div>
+        <div style=\"background:white;border:2px solid #22c55e;border-radius:12px;padding:16px;margin-bottom:16px\">
+            <div style=\"font-size:16px;font-weight:800;color:#22c55e;margin-bottom:10px;text-align:center\">📊 BEAT TRACKER</div>
             {beat_section}
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px">
-                <div style="font-weight:700;margin-bottom:8px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:4px">🤖 Models & Temps</div>
-                <div style="font-size:13px;line-height:1.5">
-                    <div>Gen: <span style="color:#111827;font-weight:600">{gen}</span> {gen_t}</div>
-                    <div>Rsn: <span style="color:#111827;font-weight:600">{rsn}</span> {rsn_t}</div>
-                    <div>Pol: <span style="color:#111827;font-weight:600">{pol}</span> {pol_t}</div>
+        <div style=\"display:grid;grid-template-columns:1fr 1fr;gap:12px\">
+            <div style=\"background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px\">
+                <div style=\"font-weight:700;margin-bottom:8px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:4px\">🤖 Models & Temps</div>
+                <div style=\"font-size:13px;line-height:1.5\">
+                    <div>Gen: <span style=\"color:#111827;font-weight:600\">{gen}</span> {gen_t}</div>
+                    <div>Rsn: <span style=\"color:#111827;font-weight:600\">{rsn}</span> {rsn_t}</div>
+                    <div>Pol: <span style=\"color:#111827;font-weight:600\">{pol}</span> {pol_t}</div>
                 </div>
             </div>
-            <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px">
-                <div style="font-weight:700;margin-bottom:8px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:4px">⏱️ Timing</div>
-                <div style="font-size:13px;line-height:1.5">
-                    <div>Elapsed: <span style="color:#111827;font-weight:600">{elapsed_str}</span></div>
-                    <div>ETA: <span style="color:#111827;font-weight:600">{eta_str}</span></div>
+            <div style=\"background:white;border:1px solid #e5e7eb;border-radius:12px;padding:12px\">
+                <div style=\"font-weight:700;margin-bottom:8px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:4px\">⏱️ Timing</div>
+                <div style=\"font-size:13px;line-height:1.5\">
+                    <div>Elapsed: <span style=\"color:#111827;font-weight:600\">{elapsed_str}</span></div>
+                    <div>ETA: <span style=\"color:#111827;font-weight:600\">{eta_str}</span></div>
                 </div>
             </div>
         </div>
         {params_box}
     </div>
     """
-    html = html.replace("{status_upper}", status.upper()) \
+    html = html.replace("{status_upper}", status_upper) \
                .replace("{pb_main}", progress_bar(progress, color)) \
                .replace("{beat_section}", beat_section) \
                .replace("{gen_t}", f"<span style='color:#3b82f6'>({tgen})</span>" if tgen is not None else "") \
