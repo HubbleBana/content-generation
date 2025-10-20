@@ -21,8 +21,7 @@ Analyze and extract sensory elements optimized for the specified parameters, out
   "sensory_opportunities": {{"sight": [], "sound": [], "touch": [], "smell": [], "proprioception": []}},
   "movement_opportunities": ["embodied actions for {movement_style}"],
   "pov_considerations": "specific guidance for {pov_mode} narration"
-}}
-'''
+}}\n'''
 
 OUTLINE_GENERATION_PROMPT = '''You are a master storyteller for calming sleep narratives with parameter-aware planning.
 
@@ -45,7 +44,7 @@ OUTPUT strict JSON with parameter compliance:
     "time_of_day": "dawn/dusk/night",
     "key_objects": ["object1", "object2"],
     "mood_baseline": 8,
-    "pov_style": "{'strict_second_person' if {pov_enforce} else 'flexible'}",
+    "pov_style": "strict_second_person" if {pov_enforce} else "flexible",
     "embodiment_requirements": {{
       "movement_verbs_per_beat": {embodiment_level},
       "spatial_transitions_required": true,
@@ -68,14 +67,13 @@ OUTPUT strict JSON with parameter compliance:
           "description": "Establish clear destination with {embodiment_level} movement verbs, {sensory_coupling} sensory elements",
           "sensory_focus": ["sight", "sound"],
           "waypoint": "entry path",
-          "pov_instructions": "{'Use strict 2nd person present' if {pov_enforce} else 'Prefer 2nd person'}",
+          "pov_instructions": "Use strict 2nd person present" if {pov_enforce} else "Prefer 2nd person",
           "embodiment_checklist": ["movement verb", "spatial transition", "consequent perception"]
         }}
       ]
     }}
   ]
-}}
-'''
+}}\n'''
 
 BEAT_GENERATION_PROMPT = '''PARAMETER-AWARE BEAT GENERATION
 
@@ -113,15 +111,14 @@ STYLE ENFORCEMENT:
 Generate next segment with strict parameter compliance:
 '''
 
-# New: Parameter-aware reasoner prompts
 REASONER_EMBODIMENT_CHECKLIST = '''EMBODIMENT VALIDATION (Parameter-Aware):
 
 REQUIRED ELEMENTS:
 - Movement verbs: minimum {movement_verbs_required}
 - Spatial transitions: minimum {transition_tokens_required}
 - Consequent perceptions: minimum {sensory_coupling}
-- POV consistency: {'strict 2nd person present' if {pov_enforce} else 'flexible but prefer 2nd person'}
-- Downshift elements: {'required (breath/relaxation cues)' if {downshift_required} else 'optional'}
+- POV consistency: ''' + "strict 2nd person present" + ''' if {pov_enforce} else ''' + "flexible but prefer 2nd person" + '''
+- Downshift elements: ''' + "required (breath/relaxation cues)" + ''' if {downshift_required} else ''' + "optional" + '''
 
 IF MISSING ANY REQUIRED ELEMENTS:
 Rewrite to include all required elements while preserving meaning and sleep-inducing tone.
@@ -164,77 +161,57 @@ IF ALL SCORES >= 8: "APPROVED"
 ELSE: Specify required improvements for parameter compliance
 '''
 
-# Helper function to format generation parameters
+# Helper functions unchanged...
+from typing import Dict
+
 def format_generation_parameters(params: dict) -> str:
-    """Format generation parameters for prompt inclusion"""
     formatted = []
-    
     if params.get('pov_enforce_second_person', True):
         formatted.append("POV: Strict second person present tense (you walk, you see, you feel)")
     else:
         formatted.append("POV: Flexible but prefer second person")
-    
     movement_req = params.get('movement_verbs_required', 1)
     if movement_req > 0:
         formatted.append(f"Movement: Minimum {movement_req} embodied action verb(s) per beat")
-    
     sensory_req = params.get('sensory_coupling', 2)
     formatted.append(f"Sensory: Couple {sensory_req} sensory elements (sight+sound+touch)")
-    
     if params.get('transition_tokens_required', 1) > 0:
         formatted.append(f"Transitions: Include {params['transition_tokens_required']} spatial connector(s)")
-    
     if params.get('downshift_required', True):
         formatted.append("Downshift: Include relaxation cues (breath slows, shoulders ease)")
-    
     if params.get('tts_markers', False):
         formatted.append("TTS: Include [PAUSE:x.x] and [BREATHE] markers")
-    
     if params.get('strict_schema', False):
         formatted.append("Schema: Maintain structured beat format for video production")
-    
     return "\n".join(formatted)
 
-# Helper function to format style requirements
 def format_style_requirements(params: dict) -> str:
-    """Format style requirements based on parameters"""
     style_rules = []
-    
     if params.get('pov_enforce_second_person', True):
         style_rules.append("NEVER use first person (I/me) or third person (he/she/they)")
         style_rules.append("ALWAYS use second person present: 'You walk', 'You notice', 'You feel'")
-    
     style_rules.append("NO lists or bullet points")
     style_rules.append("NO tension, conflict, or stimulating content")
     style_rules.append("Slow pacing with natural pauses between actions")
     style_rules.append("Causal sensory descriptions (action → perception)")
-    
     if params.get('tts_markers', False):
         style_rules.append("Natural breathing spaces marked with [BREATHE]")
         style_rules.append("Longer pauses marked with [PAUSE:2.0] for contemplation")
-    
     return "\n".join(style_rules)
 
-# Helper for action style based on parameters
 def format_action_style(params: dict) -> str:
-    """Format action style instructions"""
     movement_req = params.get('movement_verbs_required', 1)
     pov_strict = params.get('pov_enforce_second_person', True)
-    
     if movement_req > 1:
         action_style = f"Include {movement_req} distinct movement verbs in {'strict 2nd person' if pov_strict else 'preferred 2nd person'}"
     elif movement_req == 1:
         action_style = f"One clear movement verb in {'strict 2nd person present' if pov_strict else 'preferred 2nd person'}"
     else:
         action_style = "Gentle, minimal movement focus"
-    
     return action_style
 
-# Helper for perception requirements
 def format_perception_requirements(params: dict) -> str:
-    """Format perception requirements based on sensory coupling"""
     coupling = params.get('sensory_coupling', 2)
-    
     if coupling >= 3:
         return f"at least {coupling} sensory perceptions (corporeal + environmental + additional)"
     elif coupling == 2:
@@ -242,11 +219,8 @@ def format_perception_requirements(params: dict) -> str:
     else:
         return "minimal sensory focus, emphasis on peaceful flow"
 
-# Helper for transition requirements
 def format_transition_requirements(params: dict) -> str:
-    """Format spatial transition requirements"""
     transitions = params.get('transition_tokens_required', 1)
-    
     if transitions > 1:
         return f"{transitions} directional connectors (e.g., 'più avanti', 'oltre il', 'raggiungi')"
     elif transitions == 1:
@@ -254,9 +228,7 @@ def format_transition_requirements(params: dict) -> str:
     else:
         return "smooth narrative flow without forced transitions"
 
-# Helper for downshift requirements  
 def format_downshift_requirements(params: dict) -> str:
-    """Format downshift/relaxation requirements"""
     if params.get('downshift_required', True):
         return "explicit relaxation cues (breath slows, shoulders release, pace softens)"
     else:
