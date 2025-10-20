@@ -1,37 +1,29 @@
 """Results panel components for Sleep Stories AI.
 
 Ensure gr.JSON components always receive dict/list, not empty strings.
+Include create_download_section for UI imports.
 """
 
 import gradio as gr
-from typing import Dict, Any, List, Tuple, Optional
-import json
+from typing import Dict, Any, List, Tuple
+
 
 def create_results_tabs() -> Tuple:
     """Create comprehensive results display tabs."""
     with gr.Tabs() as results_tabs:
         # Story Tab
-        with gr.Tab("📜 Story") as story_tab:
-            story_output = gr.Textbox(
-                label="Generated Story",
-                lines=25,
-                interactive=False,
-                show_copy_button=True,
-                container=True,
-                placeholder="Your generated story will appear here..."
-            )
-            
+        with gr.Tab("📜 Story"):
+            story_output = gr.Textbox(label="Generated Story", lines=25, interactive=False, show_copy_button=True, container=True, placeholder="Your generated story will appear here...")
             with gr.Row():
                 word_count = gr.Number(label="Word Count", value=0, interactive=False)
                 estimated_duration = gr.Textbox(label="Estimated Reading Time", value="0 minutes", interactive=False)
                 tts_ready = gr.Checkbox(label="TTS Ready", value=False, interactive=False, info="Contains TTS markers")
-            
             with gr.Row():
                 export_txt_btn = gr.Button("📄 Export as TXT", size="sm", variant="secondary")
                 export_tts_btn = gr.Button("🎙️ Export for TTS", size="sm", variant="secondary")
         
         # Metrics Tab
-        with gr.Tab("📈 Metrics") as metrics_tab:
+        with gr.Tab("📈 Metrics"):
             with gr.Row():
                 with gr.Column():
                     generation_metrics = gr.JSON(label="Generation Metrics", value={}, container=True)
@@ -44,7 +36,7 @@ def create_results_tabs() -> Tuple:
                 flow_score = gr.Slider(minimum=0, maximum=100, value=0, label="Flow Score", interactive=False)
         
         # Outline Tab
-        with gr.Tab("🗺️ Outline") as outline_tab:
+        with gr.Tab("🗺️ Outline"):
             story_outline = gr.Textbox(label="Story Outline & Structure", lines=20, interactive=False, show_copy_button=True, container=True, placeholder="Story outline and structure analysis will appear here...")
             with gr.Row():
                 beats_count = gr.Number(label="Total Beats", value=0, interactive=False)
@@ -52,7 +44,7 @@ def create_results_tabs() -> Tuple:
                 sensory_rotations = gr.Number(label="Sensory Rotations", value=0, interactive=False)
         
         # Schema Tab
-        with gr.Tab("📝 Schema") as schema_tab:
+        with gr.Tab("📝 Schema"):
             beats_schema = gr.JSON(label="Beats Schema (Video Production)", value={}, container=True)
             with gr.Row():
                 schema_valid = gr.Checkbox(label="Schema Valid", value=False, interactive=False, info="Ready for video production pipeline")
@@ -63,7 +55,7 @@ def create_results_tabs() -> Tuple:
                 export_video_ready_btn = gr.Button("🎥 Export Video-Ready", size="sm", variant="secondary")
         
         # Analysis Tab
-        with gr.Tab("🔍 Analysis") as analysis_tab:
+        with gr.Tab("🔍 Analysis"):
             with gr.Row():
                 with gr.Column():
                     gr.Markdown("### Sensory Analysis")
@@ -85,8 +77,22 @@ def create_results_tabs() -> Tuple:
         sensory_breakdown, linguistic_stats, quality_report
     )
 
+
+def create_download_section() -> Tuple:
+    """Create file download section."""
+    with gr.Group():
+        gr.Markdown("### 📥 Download Results")
+        with gr.Row():
+            download_story_file = gr.File(label="Story File", visible=False)
+            download_metrics_file = gr.File(label="Metrics File", visible=False)
+            download_schema_file = gr.File(label="Schema File", visible=False)
+        with gr.Row():
+            prepare_downloads_btn = gr.Button("📎 Prepare Downloads", variant="secondary", size="sm")
+            download_all_btn = gr.Button("📦 Download All", variant="primary", size="sm")
+    return (download_story_file, download_metrics_file, download_schema_file, prepare_downloads_btn, download_all_btn)
+
+
 def update_results_display(result: Dict[str, Any]) -> Tuple[gr.update, ...]:
-    """Update all results displays with generation result data. Always return dicts for JSON components."""
     story_text = result.get("story_text", "")
     metrics = result.get("metrics", {}) or {}
     coherence_stats = result.get("coherence_stats", {}) or {}
@@ -121,29 +127,22 @@ def update_results_display(result: Dict[str, Any]) -> Tuple[gr.update, ...]:
         gr.update(value=word_count_val),
         gr.update(value=estimated_reading_time),
         gr.update(value=tts_ready_val),
-        # Buttons unchanged
         gr.update(), gr.update(),
-        # JSON components must receive dicts
         gr.update(value=metrics),
         gr.update(value=coherence_stats),
         gr.update(value=memory_stats),
-        # Scores
         gr.update(value=sensory_score_val),
         gr.update(value=coherence_score_val),
         gr.update(value=flow_score_val),
-        # Outline text
         gr.update(value=outline),
         gr.update(value=beats_count_val),
         gr.update(value=transitions_count_val),
         gr.update(value=sensory_rotations_val),
-        # Schema JSON + flags
         gr.update(value=beats_schema),
         gr.update(value=schema_valid_val),
         gr.update(value=total_segments_val),
         gr.update(value=total_duration_val),
-        # Export buttons unchanged
         gr.update(), gr.update(),
-        # Analysis JSONs
         gr.update(value=sensory_breakdown_val),
         gr.update(value=linguistic_stats_val),
         gr.update(value=quality_report_val)
