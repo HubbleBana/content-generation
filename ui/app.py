@@ -54,12 +54,12 @@ def parse_job_id(label: str) -> str:
     return (label or "").split("|", 1)[0]
 
 # ----------------------
-# Payload builder — 1:1 con EnhancedStoryRequest
+# Payload builder — ESTESO con tutti i parametri del backend
 # ----------------------
 def build_payload(theme, description, duration,
                   use_reasoner, use_polish,
                   tts_markers, strict_schema,
-                  sensory_rotation, sleep_taper,
+                  sensory_rotation, sleep_taper, rotation,
                   generator_model, reasoner_model, polisher_model,
                   temp_gen, temp_rsn, temp_pol,
                   beats, words_per_beat, tolerance,
@@ -88,9 +88,10 @@ def build_payload(theme, description, duration,
         "tts_markers": bool(tts_markers),
         "strict_schema": bool(strict_schema),
 
-        # Questi due campi sono opzionali nel router: se None, usa i defaults del backend
+        # Questi campi sono opzionali nel router: se None, usa i defaults del backend
         "sensory_rotation": bool(sensory_rotation) if sensory_rotation is not None else None,
         "sleep_taper": bool(sleep_taper) if sleep_taper is not None else None,
+        "rotation": bool(rotation) if rotation is not None else None,  # AGGIUNTO
 
         # Advanced tweakables
         "temps": {
@@ -281,12 +282,12 @@ def stream_sse(job_id: str):
             time.sleep(min(2 ** retry, 8))
 
 # ----------------------
-# Actions
+# Actions - AGGIORNATO con nuovo parametro rotation
 # ----------------------
 def start_and_stream(theme, description, duration,
                      use_reasoner, use_polish,
                      tts_markers, strict_schema,
-                     sensory_rotation, sleep_taper,
+                     sensory_rotation, sleep_taper, rotation,  # AGGIUNTO rotation
                      generator_model, reasoner_model, polisher_model,
                      temp_gen, temp_rsn, temp_pol,
                      beats, words_per_beat, tolerance,
@@ -295,7 +296,7 @@ def start_and_stream(theme, description, duration,
     payload = build_payload(theme, description, duration,
                             use_reasoner, use_polish,
                             tts_markers, strict_schema,
-                            sensory_rotation, sleep_taper,
+                            sensory_rotation, sleep_taper, rotation,  # AGGIUNTO rotation
                             generator_model, reasoner_model, polisher_model,
                             temp_gen, temp_rsn, temp_pol,
                             beats, words_per_beat, tolerance,
@@ -338,81 +339,92 @@ def attach_manual(manual_id: str):
         yield update
 
 # ----------------------
-# UI
+# UI - AGGIORNATO con controllo rotation
 # ----------------------
-with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("## 🌙 Sleep Stories — Complete UI")
+with gr.Blocks(title="Sleep Stories — Enhanced UI", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("## 🌙 Sleep Stories — Enhanced UI with All Backend Parameters")
 
     models_state = gr.State([])
     presets_state = gr.State({})
 
     with gr.Row():
         with gr.Column(scale=1, min_width=460):
-            gr.Markdown("### Base")
+            gr.Markdown("### Base Settings")
             theme = gr.Textbox(label="Theme", value="A peaceful mountain meadow at dawn")
-            description = gr.Textbox(label="Description", lines=3, placeholder="Optional")
+            description = gr.Textbox(label="Description", lines=3, placeholder="Optional detailed description")
             duration = gr.Slider(10, 120, value=45, step=5, label="Duration (minutes)")
 
-            gr.Markdown("### Models")
-            gen_dd = gr.Dropdown(choices=[], label="Generator", allow_custom_value=True)
-            rsn_dd = gr.Dropdown(choices=[], label="Reasoner", allow_custom_value=True)
-            pol_dd = gr.Dropdown(choices=[], label="Polisher", allow_custom_value=True)
+            gr.Markdown("### Models & Presets")
+            gen_dd = gr.Dropdown(choices=[], label="Generator Model", allow_custom_value=True)
+            rsn_dd = gr.Dropdown(choices=[], label="Reasoner Model", allow_custom_value=True)
+            pol_dd = gr.Dropdown(choices=[], label="Polisher Model", allow_custom_value=True)
             preset_dd = gr.Dropdown(choices=[], label="Model Preset", allow_custom_value=False)
 
             def on_preset_change(preset_key, presets):
                 if not preset_key or not presets or preset_key not in presets:
-                    return gr.update(), gr.update(), gr.update()
+                    return gr.update(), gr.update(), gr.update(), gr.update()
                 p = presets[preset_key]
-                return gr.update(value=p.get("generator")), gr.update(value=p.get("reasoner")), gr.update(value=p.get("polisher"))
+                return (gr.update(value=p.get("generator")), 
+                       gr.update(value=p.get("reasoner")), 
+                       gr.update(value=p.get("polisher")),
+                       gr.update(value=p.get("rotation", True)))  # AGGIUNTO controllo rotation
 
-            preset_dd.change(on_preset_change, inputs=[preset_dd, presets_state], outputs=[gen_dd, rsn_dd, pol_dd])
-
-            gr.Markdown("### Quality & Output")
             use_reasoner = gr.Checkbox(label="Enable Reasoner", value=True)
             use_polish = gr.Checkbox(label="Enable Polisher", value=True)
+
+            gr.Markdown("### Quality & Output Settings")
             tts_markers = gr.Checkbox(label="Insert TTS markers", value=False)
             strict_schema = gr.Checkbox(label="Return strict JSON schema", value=False)
-            sensory_rotation = gr.Checkbox(label="Sensory rotation", value=True)
-            sleep_taper = gr.Checkbox(label="Sleep taper", value=True)
+            sensory_rotation = gr.Checkbox(label="Sensory rotation (sight→sound→touch...)", value=True)
+            sleep_taper = gr.Checkbox(label="Sleep taper (reduce density at end)", value=True)
+            rotation = gr.Checkbox(label="General rotation (separate from sensory)", value=True)  # AGGIUNTO
 
-            gr.Markdown("### Temperatures")
-            temp_gen = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Generator")
-            temp_rsn = gr.Slider(0.1, 1.5, value=0.3, step=0.05, label="Reasoner")
-            temp_pol = gr.Slider(0.1, 1.5, value=0.4, step=0.05, label="Polisher")
+            preset_dd.change(on_preset_change, inputs=[preset_dd, presets_state], outputs=[gen_dd, rsn_dd, pol_dd, rotation])
 
-            gr.Markdown("### Structure")
+            gr.Markdown("### Model Temperatures")
+            temp_gen = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Generator Temperature")
+            temp_rsn = gr.Slider(0.1, 1.5, value=0.3, step=0.05, label="Reasoner Temperature")
+            temp_pol = gr.Slider(0.1, 1.5, value=0.4, step=0.05, label="Polisher Temperature")
+
+            gr.Markdown("### Story Structure & Timing")
             beats = gr.Slider(0, 24, value=0, step=1, label="Beats (0 = backend default)")
             words_per_beat = gr.Slider(0, 800, value=0, step=50, label="Words per beat (0 = backend default)")
-            tolerance = gr.Slider(0.0, 0.5, value=0.0, step=0.05, label="Tolerance (0 = backend default)")
-            taper_start_pct = gr.Slider(0.5, 0.95, value=0.8, step=0.05, label="Taper start pct")
-            taper_reduction = gr.Slider(0.3, 0.9, value=0.7, step=0.05, label="Taper reduction")
+            tolerance = gr.Slider(0.0, 0.5, value=0.0, step=0.05, label="Beat length tolerance (0 = backend default)")
+            taper_start_pct = gr.Slider(0.5, 0.95, value=0.8, step=0.05, label="Taper start percentage")
+            taper_reduction = gr.Slider(0.3, 0.9, value=0.7, step=0.05, label="Taper reduction factor")
 
-            gr.Markdown("### Waypoints")
-            custom_waypoints_text = gr.Textbox(label="Custom waypoints (one per line)", lines=4, placeholder="e.g.\nentry path\ngentle bend\nsmall clearing")
+            gr.Markdown("### Spatial Waypoints & Journey")
+            custom_waypoints_text = gr.Textbox(
+                label="Custom spatial waypoints (one per line)", 
+                lines=4, 
+                placeholder="e.g.\nentry path\ngentle bend\nsmall clearing\nwooden bridge\nsoft moss hollow"
+            )
 
-            run_btn = gr.Button("🎬 Generate", variant="primary")
+            run_btn = gr.Button("🎬 Generate Enhanced Story", variant="primary", size="lg")
 
         with gr.Column(scale=1, min_width=520):
-            gr.Markdown("### Sessions")
+            gr.Markdown("### Job Management & Sessions")
             with gr.Row():
                 jobs_dd = gr.Dropdown(choices=[], label="Active/Recent Jobs", allow_custom_value=False)
-                refresh_jobs = gr.Button("↻")
+                refresh_jobs = gr.Button("↻ Refresh")
                 attach_btn = gr.Button("🔗 Attach")
             with gr.Row():
-                manual_id = gr.Textbox(label="Manual Job ID", placeholder="Enter job ID…")
-                attach_manual_btn = gr.Button("🔗 Attach manual")
+                manual_id = gr.Textbox(label="Manual Job ID", placeholder="Enter job ID directly...")
+                attach_manual_btn = gr.Button("🔗 Attach Manual")
 
-            gr.Markdown("### Status & Outputs")
-            status = gr.HTML(value="<div style='padding:16px;color:#6b7280'>Ready.</div>")
+            gr.Markdown("### Generation Status & Progress")
+            status = gr.HTML(value="<div style='padding:16px;color:#6b7280;text-align:center'>Ready for enhanced story generation with all backend parameters.</div>")
+            
+            gr.Markdown("### Output Results")
             with gr.Tabs():
-                with gr.Tab("Story"):
-                    story = gr.Textbox(lines=18, show_copy_button=True)
-                with gr.Tab("Metrics"):
-                    metrics = gr.Textbox(lines=12, show_copy_button=True)
-                with gr.Tab("Schema"):
-                    schema = gr.Textbox(lines=12, show_copy_button=True)
+                with gr.Tab("📖 Story Text"):
+                    story = gr.Textbox(lines=18, show_copy_button=True, placeholder="Generated story will appear here...")
+                with gr.Tab("📊 Generation Metrics"):
+                    metrics = gr.Textbox(lines=12, show_copy_button=True, placeholder="Detailed generation metrics and statistics...")
+                with gr.Tab("🔧 Beats Schema"):
+                    schema = gr.Textbox(lines=12, show_copy_button=True, placeholder="Structured beats schema (if strict_schema enabled)...")
 
-    # Load presets/models/jobs on app load
+    # Load presets/models/jobs on app initialization
     def init_load():
         models = load_ollama_models()
         presets = load_presets()
@@ -429,13 +441,14 @@ with gr.Blocks(title="Sleep Stories — UI", theme=gr.themes.Soft()) as demo:
 
     refresh_jobs.click(refresh_jobs_only, None, [jobs_dd])
 
+    # AGGIORNATO: aggiunto rotation agli inputs
     run_btn.click(
         start_and_stream,
         inputs=[
             theme, description, duration,
             use_reasoner, use_polish,
             tts_markers, strict_schema,
-            sensory_rotation, sleep_taper,
+            sensory_rotation, sleep_taper, rotation,  # AGGIUNTO rotation
             gen_dd, rsn_dd, pol_dd,
             temp_gen, temp_rsn, temp_pol,
             beats, words_per_beat, tolerance,
