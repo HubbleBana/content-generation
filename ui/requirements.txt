@@ -1,4 +1,7 @@
-﻿gradio==4.44.0
-requests==2.32.0
-python-dotenv==1.0.1
-pydantic
+gradio>=4.44.0
+requests>=2.31.0
+sseclient-py>=1.8.0
+websockets>=11.0
+aiohttp>=3.8.0
+uvloop>=0.17.0
+psutil>=5.9.0
