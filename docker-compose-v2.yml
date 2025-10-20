@@ -1,0 +1,138 @@
+# Enhanced Docker Compose Configuration - Updated by Jimmy
+# Includes improved UI service with Gradio 5.x and real-time streaming support
+
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sleep-stories-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - sleepai_volume:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KEEP_ALIVE=24h  # Keep models loaded longer
+    restart: unless-stopped
+    networks:
+      - sleep-stories-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  backend:
+    build: ./backend
+    container_name: sleep-stories-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - sleepai_volume:/app/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - DATA_PATH=/app/data
+      - PYTHONUNBUFFERED=1
+      # Enhanced backend settings
+      - SENSORY_ROTATION_ENABLED=true
+      - SLEEP_TAPER_ENABLED=true
+      - MAX_CONCURRENT_MODELS=1
+      - DEFAULT_MODEL_TEMPERATURE=0.7
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - sleep-stories-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/enhanced"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+  # Enhanced UI service with Gradio 5.x
+  ui-enhanced:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile_v2
+    container_name: sleep-stories-ui-v2
+    ports:
+      - "7860:7860"
+    volumes:
+      - sleepai_volume:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      - API_URL=http://backend:8000/api
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - GRADIO_SERVER_PORT=7860
+      - DATA_PATH=/app/data
+      # Enhanced UI settings
+      - GRADIO_THEME=soft
+      - GRADIO_ANALYTICS_ENABLED=false
+      - PYTHONUNBUFFERED=1
+      - REFRESH_INTERVAL=2
+    restart: unless-stopped
+    networks:
+      - sleep-stories-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Optional: Keep original UI for comparison (comment out if not needed)
+  ui-legacy:
+    build: ./ui
+    container_name: sleep-stories-ui-legacy
+    ports:
+      - "7861:7860"  # Different port to avoid conflict
+    volumes:
+      - sleepai_volume:/app/data
+    depends_on:
+      - backend
+    environment:
+      - API_URL=http://backend:8000/api
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - DATA_PATH=/app/data
+    restart: unless-stopped
+    networks:
+      - sleep-stories-net
+    profiles:
+      - legacy  # Use 'docker-compose --profile legacy up' to include this
+
+networks:
+  sleep-stories-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  sleepai_volume:
+    external: true
+    
+# Usage Instructions:
+# 1. Enhanced UI (Recommended): docker-compose -f docker-compose-v2.yml up -d
+# 2. With Legacy UI for comparison: docker-compose -f docker-compose-v2.yml --profile legacy up -d
+# 3. Enhanced UI will be available at: http://localhost:7860
+# 4. Legacy UI (if enabled) will be available at: http://localhost:7861
