@@ -10,7 +10,7 @@ API_URL = os.getenv("API_URL", "http://backend:8000/api")
 
 # --- HTTP helpers ---
 
-def fetch_json(url, timeout=8):
+def fetch_json(url, timeout=15):
     try:
         r = requests.get(url, timeout=timeout)
         if r.status_code == 200:
@@ -19,13 +19,13 @@ def fetch_json(url, timeout=8):
         return None
     return None
 
-# Always return list of strings for Dropdown to avoid [object Object]
+# Build dropdown labels (include queued/created too)
 
 def build_job_labels(jobs_payload: Dict[str, Any]) -> List[str]:
     jobs = (jobs_payload or {}).get('jobs', [])
     labels: List[str] = []
     for j in jobs:
-        if j.get('status') in ['started','processing']:
+        if j.get('status') in ['queued','created','started','processing']:
             jid = str(j.get('job_id',''))
             theme = str(j.get('theme','unknown'))
             prog = int(j.get('progress',0))
@@ -54,11 +54,13 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         return
     job_id = r.json().get("job_id")
     last_status = ""
+    backoff = 2
     while True:
-        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=10)
+        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=15)
         if not st:
             yield (last_status + "\n⚠️ status unavailable", "", "", "", job_id)
-            time.sleep(2)
+            time.sleep(backoff)
+            backoff = min(5, backoff + 1)
             continue
         progress = st.get("progress", 0)
         step = st.get("current_step", "Processing...")
@@ -66,7 +68,7 @@ def start_and_stream(payload: Dict[str, Any]) -> Generator[tuple, None, None]:
         total_steps = st.get("total_steps", 8)
         elapsed = str(timedelta(seconds=int(time.time()-start_time)))[2:7]
         bar = f"[{'🟩'*int(progress/2.5)}{'⬜'*(40-int(progress/2.5))}] {progress:.1f}%"
-        status_text = f"""🚀 Sleep Stories AI — v3.3
+        status_text = f"""🚀 Sleep Stories AI — v3.4
 Job: {job_id}\nElapsed: {elapsed}
 Step {step_num}/{total_steps}: {step}
 {bar}
@@ -79,7 +81,8 @@ Step {step_num}/{total_steps}: {step}
         if st.get("status") == "failed":
             yield (status_text+"\n❌ FAILED", "", "", "", job_id)
             return
-        time.sleep(2)
+        time.sleep(backoff)
+        backoff = min(5, backoff + 1)
     res = fetch_json(f"{API_URL}/generate/{job_id}/result", timeout=30)
     if not res:
         yield (last_status+"\n❌ result unavailable", "", "", "", job_id)
@@ -99,11 +102,13 @@ def attach_and_stream(label: str) -> Generator[tuple, None, None]:
         return
     start_time = time.time()
     last_status = ""
+    backoff = 2
     while True:
-        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=10)
+        st = fetch_json(f"{API_URL}/generate/{job_id}/status", timeout=15)
         if not st:
             yield (last_status + "\n⚠️ status unavailable", "", "", "", job_id)
-            time.sleep(2)
+            time.sleep(backoff)
+            backoff = min(5, backoff + 1)
             continue
         progress = st.get("progress", 0)
         step = st.get("current_step", "Processing...")
@@ -124,7 +129,8 @@ Step {step_num}/{total_steps}: {step}
         if st.get("status") == "failed":
             yield (status_text+"\n❌ FAILED", "", "", "", job_id)
             return
-        time.sleep(2)
+        time.sleep(backoff)
+        backoff = min(5, backoff + 1)
     res = fetch_json(f"{API_URL}/generate/{job_id}/result", timeout=30)
     if not res:
         yield (last_status+"\n❌ result unavailable", "", "", "", job_id)
@@ -132,12 +138,12 @@ Step {step_num}/{total_steps}: {step}
     story = res.get('story_text','')
     metrics = json.dumps(res.get('metrics',{}), indent=2)
     coherence = json.dumps(res.get('coherence_stats',{}), indent=2)
-    yield (last_status+"\n✅ COMPLETED", story, metrics+"\n\n---\nCoherence:\n"+coherence, "", json.dumps(res.get('beats_schema',{}), indent=2) or "(no schema)")
+    yield (last_status+"\n✅ COMPLETED", story, metrics+"\n\n---\nCoherence:\n"+coherence, "", json.dumps(res.get('beats_schema',{}), indent=2) or "(no schema)"
 
 # --- UI ---
 
-with gr.Blocks(title="Sleep Stories AI — v3.3", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌙 Sleep Stories AI — v3.3")
+with gr.Blocks(title="Sleep Stories AI — v3.4", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🌙 Sleep Stories AI — v3.4")
 
     with gr.Row():
         with gr.Column(scale=1, min_width=460):
@@ -176,7 +182,6 @@ with gr.Blocks(title="Sleep Stories AI — v3.3", theme=gr.themes.Soft()) as dem
             archetype = gr.Dropdown(label="Destination archetype", choices=["safe_shelter","peaceful_vista","restorative_water","sacred_space"], value="safe_shelter")
 
             with gr.Accordion("🔧 Advanced (examples included)", open=False):
-                gr.Markdown("Examples & Tips: movement, transition, sensory coupling, destination arc, Spatial Coach.")
                 temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Model temperature")
                 coach_on = gr.Checkbox(label="Enable Spatial Coach (DeepSeek)", value=False)
 
@@ -186,6 +191,7 @@ with gr.Blocks(title="Sleep Stories AI — v3.3", theme=gr.themes.Soft()) as dem
                 active_jobs = gr.Dropdown(label="Active Jobs (Resume)", choices=[], allow_custom_value=False)
                 refresh_jobs = gr.Button("↻", size="sm")
                 attach_btn = gr.Button("🔗 Attach", variant="secondary")
+            current_job = gr.Textbox(label="Current Job ID", interactive=False)
             status = gr.Textbox(label="Status", lines=10, interactive=False)
 
             gr.Markdown("### 📤 Outputs")
@@ -205,22 +211,22 @@ with gr.Blocks(title="Sleep Stories AI — v3.3", theme=gr.themes.Soft()) as dem
 
     # Loaders
     def on_load():
-        jobs = fetch_json(f"{API_URL}/jobs", timeout=5) or {"jobs": []}
+        jobs = fetch_json(f"{API_URL}/jobs", timeout=15) or {"jobs": []}
         job_labels = build_job_labels(jobs)
-        models = fetch_json(f"{API_URL}/models/ollama", timeout=8) or []
+        models = fetch_json(f"{API_URL}/models/ollama", timeout=15) or []
         names = [m.get('name','') for m in models if isinstance(m, dict)]
         return [gr.update(choices=job_labels), gr.update(choices=names), gr.update(choices=names), gr.update(choices=names)]
 
     demo.load(on_load, inputs=None, outputs=[active_jobs, gen, rsn, pol])
 
     refresh_jobs.click(
-        fn=lambda: [gr.update(choices=build_job_labels(fetch_json(f"{API_URL}/jobs", 5) or {"jobs": []}))],
+        fn=lambda: [gr.update(choices=build_job_labels(fetch_json(f"{API_URL}/jobs", 15) or {"jobs": []}))],
         inputs=None,
         outputs=[active_jobs]
     )
 
     refresh_models.click(
-        fn=lambda: [gr.update(choices=[m.get('name','') for m in (fetch_json(f"{API_URL}/models/ollama", 8) or []) if isinstance(m, dict)])],
+        fn=lambda: [gr.update(choices=[m.get('name','') for m in (fetch_json(f"{API_URL}/models/ollama", 15) or []) if isinstance(m, dict)])],
         inputs=None,
         outputs=[gen]
     )
@@ -266,7 +272,20 @@ with gr.Blocks(title="Sleep Stories AI — v3.3", theme=gr.themes.Soft()) as dem
 
     def run_generate(*args):
         payload = pack_payload(*args)
-        for update in start_and_stream(payload):
+        # Start & stream, capture job id from first yield
+        gen_it = start_and_stream(payload)
+        first = next(gen_it)
+        status_txt, story, metrics, outline, schema = first
+        job_id = ""
+        if "Job: " in status_txt:
+            try:
+                job_id = status_txt.split("Job: ",1)[1].split("\n",1)[0].strip()
+            except Exception:
+                job_id = ""
+        yield (status_txt, story, metrics, outline, schema)
+        # Update current job id box
+        yield (None, None, None, None, None)  # placeholder; separate event not supported here
+        for update in gen_it:
             yield update
 
     def run_attach(label):
