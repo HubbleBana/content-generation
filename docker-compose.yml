@@ -8,25 +8,22 @@ services:
       - "11434:11434"
     volumes:
       - sleepai_volume:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    runtime: nvidia  # Explicit NVIDIA runtime
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_MAX_LOADED_MODELS=1  # Optimized for RTX 3070Ti
+      - OLLAMA_KEEP_ALIVE=5m  # Reduced keep-alive to prevent hanging
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     restart: unless-stopped
     networks:
       - sleep-stories-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434"]
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags || exit 1"]
       interval: 30s
-      timeout: 10s
-      retries: 3
+      timeout: 20s
+      retries: 5
+      start_period: 60s  # Give more time for GPU initialization
 
   backend:
     build: ./backend
@@ -35,10 +32,10 @@ services:
       - "8000:8000"
     volumes:
       - sleepai_volume:/app/data
-      - ./backend/logs:/app/logs  # Mount logs for debugging
+      - ./backend/logs:/app/logs
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started  # Changed from service_healthy to avoid blocking
     environment:
       - OLLAMA_URL=http://ollama:11434
       - DATA_PATH=/app/data
@@ -48,9 +45,10 @@ services:
       - SENSORY_ROTATION_ENABLED=true
       - SLEEP_TAPER_ENABLED=true
       - BEAT_PLANNING_ENABLED=true
-      - MAX_CONCURRENT_MODELS=1  # RTX 3070Ti optimization
+      - MAX_CONCURRENT_MODELS=1
       - MAX_RETRIES=3
       - FALLBACK_MODEL=qwen2.5:7b
+      - OLLAMA_CONNECT_TIMEOUT=120  # Longer timeout for GPU startup
     deploy:
       resources:
         reservations:
@@ -59,16 +57,16 @@ services:
               count: 1
               capabilities: [gpu]
         limits:
-          memory: 16G  # Memory limit for stability
+          memory: 16G
     restart: unless-stopped
     networks:
       - sleep-stories-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 5
-      start_period: 40s
+      start_period: 90s  # More time for backend to wait for Ollama
 
   ui:
     build: ./ui
@@ -77,10 +75,9 @@ services:
       - "7860:7860"
     volumes:
       - sleepai_volume:/app/data
-      - ./ui/logs:/app/logs  # Mount logs for debugging
+      - ./ui/logs:/app/logs
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend  # Remove condition to avoid cascading blocks
     environment:
       - API_URL=http://backend:8000/api
       - GRADIO_SERVER_NAME=0.0.0.0
@@ -96,11 +93,11 @@ services:
     networks:
       - sleep-stories-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7860"]
+      test: ["CMD-SHELL", "curl -f http://localhost:7860 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 45s
 
 networks:
   sleep-stories-net:
