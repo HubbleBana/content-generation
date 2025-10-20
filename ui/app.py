@@ -138,7 +138,7 @@ Step {step_num}/{total_steps}: {step}
     story = res.get('story_text','')
     metrics = json.dumps(res.get('metrics',{}), indent=2)
     coherence = json.dumps(res.get('coherence_stats',{}), indent=2)
-    yield (last_status+"\n✅ COMPLETED", story, metrics+"\n\n---\nCoherence:\n"+coherence, "", json.dumps(res.get('beats_schema',{}), indent=2) or "(no schema)"
+    yield (last_status+"\n✅ COMPLETED", story, metrics+"\n\n---\nCoherence:\n"+coherence, "", json.dumps(res.get('beats_schema',{}), indent=2) or "(no schema)")
 
 # --- UI ---
 
