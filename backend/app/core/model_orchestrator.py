@@ -123,7 +123,15 @@ class EnhancedModelOrchestrator:
         if progress < 0.9: return "approach"
         return "arrival"
 
-    # Missing helpers restored
+    # Missing helpers restored comprehensively
+    def _create_recursive_beat_plan(self, beat_idx: int, sensory_mode: str, waypoint: Optional[str], density_factor: float) -> Dict[str, str]:
+        return {
+            "current_state": f"Beat {beat_idx + 1} in {sensory_mode} mode",
+            "micro_goal": f"Guide through {waypoint or 'natural flow'} using {sensory_mode}",
+            "gentle_change": f"Subtle shift toward relaxation (density: {density_factor:.2f})",
+            "settling": "Allow peaceful absorption of the moment"
+        }
+
     def _calculate_coherence_stats(self, story_beats: List[Dict]) -> Dict:
         return {
             "total_beats": len(story_beats),
